@@ -74,7 +74,7 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.23'
-        cache: true  # Active le cache automatique Go
+        cache: true  # Enable automatic Go caching
 
     - name: Build binary
       run: go build -v -o bin/vllm-chill ./cmd/autoscaler
