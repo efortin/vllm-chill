@@ -1,0 +1,330 @@
+---
+# ConfigMap for vLLM model configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vllm-config
+  namespace: ai-apps
+data:
+  # Model identification
+  MODEL_NAME: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
+  SERVED_MODEL_NAME: "qwen3-coder-30b-fp8"
+
+  # Parsing configuration
+  TOOL_CALL_PARSER: "qwen3_coder"
+  REASONING_PARSER: ""
+
+  # vLLM runtime parameters
+  TENSOR_PARALLEL_SIZE: "2"
+  MAX_MODEL_LEN: "65536"
+  GPU_MEMORY_UTILIZATION: "0.91"
+  ENABLE_CHUNKED_PREFILL: "true"
+  MAX_NUM_BATCHED_TOKENS: "4096"
+  MAX_NUM_SEQS: "16"
+  DTYPE: "float16"
+  DISABLE_CUSTOM_ALL_REDUCE: "true"
+  ENABLE_PREFIX_CACHING: "true"
+  CPU_OFFLOAD_GB: "0"
+  ENABLE_AUTO_TOOL_CHOICE: "true"
+
+---
+# vLLM Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  namespace: ai-apps
+  labels:
+    app: vllm
+spec:
+  replicas: 0  # Start at 0, proxy will scale up on demand
+  selector:
+    matchLabels:
+      app: vllm
+  template:
+    metadata:
+      labels:
+        app: vllm
+    spec:
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:latest
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            EXTRA_ARGS=""
+
+            # Add optional reasoning parser if set
+            if [ -n "$REASONING_PARSER" ]; then
+              EXTRA_ARGS="$EXTRA_ARGS --reasoning-parser $REASONING_PARSER"
+            fi
+
+            # Build command with all configurable parameters
+            python3 -m vllm.entrypoints.openai.api_server \
+              --model "$MODEL_NAME" \
+              --served-model-name "$SERVED_MODEL_NAME" \
+              --tensor-parallel-size "$TENSOR_PARALLEL_SIZE" \
+              --max-model-len "$MAX_MODEL_LEN" \
+              --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
+              $([ "$ENABLE_CHUNKED_PREFILL" = "true" ] && echo "--enable-chunked-prefill") \
+              --max-num-batched-tokens "$MAX_NUM_BATCHED_TOKENS" \
+              --max-num-seqs "$MAX_NUM_SEQS" \
+              --dtype "$DTYPE" \
+              $([ "$DISABLE_CUSTOM_ALL_REDUCE" = "true" ] && echo "--disable-custom-all-reduce") \
+              $([ "$ENABLE_PREFIX_CACHING" = "true" ] && echo "--enable-prefix-caching") \
+              --cpu-offload-gb "$CPU_OFFLOAD_GB" \
+              $([ "$ENABLE_AUTO_TOOL_CHOICE" = "true" ] && echo "--enable-auto-tool-choice") \
+              --tool-call-parser "$TOOL_CALL_PARSER" \
+              $EXTRA_ARGS \
+              --host 0.0.0.0 \
+              --port 8000 \
+              --api-key token-abc123
+        env:
+        - name: MODEL_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: vllm-config
+              key: MODEL_NAME
+        - name: SERVED_MODEL_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: vllm-config
+              key: SERVED_MODEL_NAME
+        - name: TOOL_CALL_PARSER
+          valueFrom:
+            configMapKeyRef:
+              name: vllm-config
+              key: TOOL_CALL_PARSER
+        - name: REASONING_PARSER
+          valueFrom:
+            configMapKeyRef:
+              name: vllm-config
+              key: REASONING_PARSER
+        - name: TENSOR_PARALLEL_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: vllm-config
+              key: TENSOR_PARALLEL_SIZE
+        - name: MAX_MODEL_LEN
+          valueFrom:
+            configMapKeyRef:
+              name: vllm-config
+              key: MAX_MODEL_LEN
+        - name: GPU_MEMORY_UTILIZATION
+          valueFrom:
+            configMapKeyRef:
+              name: vllm-config
+              key: GPU_MEMORY_UTILIZATION
+        - name: ENABLE_CHUNKED_PREFILL
+          valueFrom:
+            configMapKeyRef:
+              name: vllm-config
+              key: ENABLE_CHUNKED_PREFILL
+        - name: MAX_NUM_BATCHED_TOKENS
+          valueFrom:
+            configMapKeyRef:
+              name: vllm-config
+              key: MAX_NUM_BATCHED_TOKENS
+        - name: MAX_NUM_SEQS
+          valueFrom:
+            configMapKeyRef:
+              name: vllm-config
+              key: MAX_NUM_SEQS
+        - name: DTYPE
+          valueFrom:
+            configMapKeyRef:
+              name: vllm-config
+              key: DTYPE
+        - name: DISABLE_CUSTOM_ALL_REDUCE
+          valueFrom:
+            configMapKeyRef:
+              name: vllm-config
+              key: DISABLE_CUSTOM_ALL_REDUCE
+        - name: ENABLE_PREFIX_CACHING
+          valueFrom:
+            configMapKeyRef:
+              name: vllm-config
+              key: ENABLE_PREFIX_CACHING
+        - name: CPU_OFFLOAD_GB
+          valueFrom:
+            configMapKeyRef:
+              name: vllm-config
+              key: CPU_OFFLOAD_GB
+        - name: ENABLE_AUTO_TOOL_CHOICE
+          valueFrom:
+            configMapKeyRef:
+              name: vllm-config
+              key: ENABLE_AUTO_TOOL_CHOICE
+        ports:
+        - containerPort: 8000
+          name: http
+        resources:
+          limits:
+            nvidia.com/gpu: 2
+          requests:
+            nvidia.com/gpu: 2
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 5
+          timeoutSeconds: 3
+
+---
+# vLLM Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-svc
+  namespace: ai-apps
+spec:
+  selector:
+    app: vllm
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  type: ClusterIP
+
+---
+# ServiceAccount for vllm-chill proxy
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vllm-chill
+  namespace: ai-apps
+
+---
+# Role for vllm-chill to manage vLLM deployment and ConfigMap
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vllm-chill
+  namespace: ai-apps
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "update", "patch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["list", "delete", "deletecollection"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "update", "patch"]
+
+---
+# RoleBinding for vllm-chill
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vllm-chill
+  namespace: ai-apps
+subjects:
+- kind: ServiceAccount
+  name: vllm-chill
+  namespace: ai-apps
+roleRef:
+  kind: Role
+  name: vllm-chill
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# vllm-chill Deployment (AutoScaler Proxy with Model Switching)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-chill
+  namespace: ai-apps
+  labels:
+    app: vllm-chill
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-chill
+  template:
+    metadata:
+      labels:
+        app: vllm-chill
+    spec:
+      serviceAccountName: vllm-chill
+      containers:
+      - name: vllm-chill
+        image: yourusername/vllm-chill:latest
+        args:
+          - serve
+          - --namespace=ai-apps
+          - --deployment=vllm
+          - --configmap=vllm-config
+          - --target-host=vllm-svc
+          - --target-port=80
+          - --idle-timeout=5m
+          - --model-switch-timeout=5m
+          - --port=8080
+          - --enable-model-switch
+        ports:
+        - containerPort: 8080
+          name: http
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8080
+          initialDelaySeconds: 3
+          periodSeconds: 5
+
+---
+# vllm-chill Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-chill-svc
+  namespace: ai-apps
+spec:
+  selector:
+    app: vllm-chill
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  type: ClusterIP
+
+---
+# Ingress (optional - adjust based on your ingress controller)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vllm-chill
+  namespace: ai-apps
+  annotations:
+    # Example for nginx ingress
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: vllm.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: vllm-chill-svc
+            port:
+              number: 80

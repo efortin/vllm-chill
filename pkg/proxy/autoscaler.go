@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -23,13 +25,17 @@ const (
 
 // AutoScaler manages automatic scaling of vLLM deployments
 type AutoScaler struct {
-	clientset    *kubernetes.Clientset
-	config       *Config
-	targetURL    *url.URL
-	lastActivity time.Time
-	mu           sync.RWMutex
-	isScalingUp  bool
-	scaleUpCond  *sync.Cond
+	clientset        *kubernetes.Clientset
+	crdClient        *CRDClient
+	config           *Config
+	targetURL        *url.URL
+	lastActivity     time.Time
+	mu               sync.RWMutex
+	isScalingUp      bool
+	scaleUpCond      *sync.Cond
+	isSwitchingModel bool
+	switchingToModel string
+	modelSwitchCond  *sync.Cond
 }
 
 // NewAutoScaler creates a new AutoScaler instance
@@ -49,6 +55,12 @@ func NewAutoScaler(config *Config) (*AutoScaler, error) {
 		return nil, fmt.Errorf("failed to create clientset: %w", err)
 	}
 
+	// Create dynamic client for CRD operations
+	dynamicClient, err := dynamic.NewForConfig(k8sConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create dynamic client: %w", err)
+	}
+
 	targetURL, err := url.Parse(config.GetTargetURL())
 	if err != nil {
 		return nil, fmt.Errorf("invalid target URL: %w", err)
@@ -56,11 +68,13 @@ func NewAutoScaler(config *Config) (*AutoScaler, error) {
 
 	as := &AutoScaler{
 		clientset:    clientset,
+		crdClient:    NewCRDClient(dynamicClient, config.Namespace),
 		config:       config,
 		targetURL:    targetURL,
 		lastActivity: time.Now(),
 	}
 	as.scaleUpCond = sync.NewCond(&as.mu)
+	as.modelSwitchCond = sync.NewCond(&as.mu)
 
 	return as, nil
 }
@@ -196,10 +210,68 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 	// Update activity
 	as.updateActivity()
 
+	// Check if a model switch is in progress
+	as.mu.RLock()
+	if as.isSwitchingModel {
+		switchingTo := as.switchingToModel
+		as.mu.RUnlock()
+
+		// Return a user-friendly message
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		response := map[string]interface{}{
+			"error": map[string]interface{}{
+				"message": fmt.Sprintf("Model '%s' is currently loading. Please wait and retry in a few moments.", switchingTo),
+				"type":    "model_loading",
+				"code":    "model_switching_in_progress",
+			},
+		}
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+	as.mu.RUnlock()
+
+	// If model switching is enabled and this is a chat completion request, handle model switching
+	if as.config.EnableModelSwitch && r.URL.Path == "/v1/chat/completions" && r.Method == "POST" {
+		// Extract the requested model from the request
+		requestedModel, err := extractModelFromRequest(r)
+		if err != nil {
+			log.Printf("⚠️  Failed to extract model from request: %v", err)
+			// Continue without model switching
+		} else if requestedModel != "" {
+			// Try to switch to the requested model
+			if err := as.switchModelWithLock(ctx, requestedModel); err != nil {
+				log.Printf("❌ Failed to switch model: %v", err)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				response := map[string]interface{}{
+					"error": map[string]interface{}{
+						"message": fmt.Sprintf("Failed to switch to model '%s': %v", requestedModel, err),
+						"type":    "model_switch_error",
+						"code":    "model_switch_failed",
+					},
+				}
+				json.NewEncoder(w).Encode(response)
+				return
+			}
+		}
+	}
+
 	// Ensure deployment is scaled up
 	if err := as.ensureScaledUp(ctx); err != nil {
 		log.Printf("❌ Failed to scale up: %v", err)
-		http.Error(w, "Service temporarily unavailable (scaling up)", http.StatusServiceUnavailable)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "10")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		response := map[string]interface{}{
+			"error": map[string]interface{}{
+				"message": "Service is starting up. Please wait and retry in a few moments.",
+				"type":    "service_unavailable",
+				"code":    "scaling_up",
+			},
+		}
+		json.NewEncoder(w).Encode(response)
 		return
 	}
 

@@ -1,0 +1,26 @@
+apiVersion: vllm.efortin.github.io/v1alpha1
+kind: VLLMModel
+metadata:
+  name: opencoder-30b-fp8
+  namespace: ai-apps
+spec:
+  # Model Identification
+  modelName: "opencoder/opencoder-30b-fp8"
+  servedModelName: "opencoder-30b-fp8"
+  
+  # Parsing Configuration
+  toolCallParser: "hermes"
+  reasoningParser: ""
+  
+  # vLLM Runtime Parameters
+  tensorParallelSize: 2
+  maxModelLen: 65536
+  gpuMemoryUtilization: 0.91
+  enableChunkedPrefill: true
+  maxNumBatchedTokens: 4096
+  maxNumSeqs: 16
+  dtype: "float16"
+  disableCustomAllReduce: true
+  enablePrefixCaching: true
+  cpuOffloadGB: 0
+  enableAutoToolChoice: true

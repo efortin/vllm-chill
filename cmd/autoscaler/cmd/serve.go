@@ -9,12 +9,15 @@ import (
 )
 
 var (
-	namespace   string
-	deployment  string
-	targetHost  string
-	targetPort  string
-	idleTimeout string
-	port        string
+	namespace          string
+	deployment         string
+	configMapName      string
+	targetHost         string
+	targetPort         string
+	idleTimeout        string
+	modelSwitchTimeout string
+	port               string
+	enableModelSwitch  bool
 )
 
 var serveCmd = &cobra.Command{
@@ -29,12 +32,15 @@ The proxy will:
 - Proxy all requests to the vLLM backend`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		config := &proxy.Config{
-			Namespace:   namespace,
-			Deployment:  deployment,
-			TargetHost:  targetHost,
-			TargetPort:  targetPort,
-			IdleTimeout: idleTimeout,
-			Port:        port,
+			Namespace:          namespace,
+			Deployment:         deployment,
+			ConfigMapName:      configMapName,
+			TargetHost:         targetHost,
+			TargetPort:         targetPort,
+			IdleTimeout:        idleTimeout,
+			ModelSwitchTimeout: modelSwitchTimeout,
+			Port:               port,
+			EnableModelSwitch:  enableModelSwitch,
 		}
 
 		scaler, err := proxy.NewAutoScaler(config)
@@ -46,6 +52,11 @@ The proxy will:
 		log.Printf("   Target: http://%s:%s", targetHost, targetPort)
 		log.Printf("   Deployment: %s/%s", namespace, deployment)
 		log.Printf("   Idle timeout: %s", idleTimeout)
+		if enableModelSwitch {
+			log.Printf("   Model switching: enabled")
+			log.Printf("   ConfigMap: %s/%s", namespace, configMapName)
+			log.Printf("   Model switch timeout: %s", modelSwitchTimeout)
+		}
 
 		return scaler.Start()
 	},
@@ -56,10 +67,13 @@ func init() {
 
 	serveCmd.Flags().StringVar(&namespace, "namespace", getEnvOrDefault("VLLM_NAMESPACE", "ai-apps"), "Kubernetes namespace")
 	serveCmd.Flags().StringVar(&deployment, "deployment", getEnvOrDefault("VLLM_DEPLOYMENT", "vllm"), "Deployment name")
+	serveCmd.Flags().StringVar(&configMapName, "configmap", getEnvOrDefault("VLLM_CONFIGMAP", "vllm-config"), "ConfigMap name for model configuration")
 	serveCmd.Flags().StringVar(&targetHost, "target-host", getEnvOrDefault("VLLM_TARGET", "vllm-svc"), "Target service host")
 	serveCmd.Flags().StringVar(&targetPort, "target-port", getEnvOrDefault("VLLM_PORT", "80"), "Target service port")
 	serveCmd.Flags().StringVar(&idleTimeout, "idle-timeout", getEnvOrDefault("IDLE_TIMEOUT", "5m"), "Idle timeout before scaling to 0")
+	serveCmd.Flags().StringVar(&modelSwitchTimeout, "model-switch-timeout", getEnvOrDefault("MODEL_SWITCH_TIMEOUT", "5m"), "Timeout for model switching")
 	serveCmd.Flags().StringVar(&port, "port", getEnvOrDefault("PORT", "8080"), "HTTP server port")
+	serveCmd.Flags().BoolVar(&enableModelSwitch, "enable-model-switch", getEnvOrDefault("ENABLE_MODEL_SWITCH", "false") == "true", "Enable dynamic model switching")
 }
 
 func getEnvOrDefault(key, defaultValue string) string {
