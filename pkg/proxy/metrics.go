@@ -46,19 +46,19 @@ var (
 		[]string{"method", "path", "status"},
 	)
 
-	// Model switching metrics
-	modelSwitches = promauto.NewCounterVec(
+	// Managed operations metrics
+	managedOperations = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "vllm_chill_model_switches_total",
-			Help: "Total number of model switches",
+			Name: "vllm_chill_managed_operations_total",
+			Help: "Total number of managed operations (model switches)",
 		},
 		[]string{"from_model", "to_model", "status"},
 	)
 
-	modelSwitchDuration = promauto.NewHistogramVec(
+	managedOperationDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "vllm_chill_model_switch_duration_seconds",
-			Help:    "Model switch duration in seconds",
+			Name:    "vllm_chill_managed_operation_duration_seconds",
+			Help:    "Managed operation duration in seconds",
 			Buckets: []float64{10, 30, 60, 120, 300, 600},
 		},
 		[]string{"from_model", "to_model"},
@@ -150,16 +150,16 @@ func (mr *MetricsRecorder) RecordRequest(method, path string, status int, durati
 	}
 }
 
-// RecordModelSwitch records a model switch operation
-func (mr *MetricsRecorder) RecordModelSwitch(fromModel, toModel string, success bool, duration time.Duration) {
+// RecordManagedOperation records a managed operation (model switch)
+func (mr *MetricsRecorder) RecordManagedOperation(fromModel, toModel string, success bool, duration time.Duration) {
 	status := "success"
 	if !success {
 		status = "failure"
 	}
 
-	modelSwitches.WithLabelValues(fromModel, toModel, status).Inc()
+	managedOperations.WithLabelValues(fromModel, toModel, status).Inc()
 	if success {
-		modelSwitchDuration.WithLabelValues(fromModel, toModel).Observe(duration.Seconds())
+		managedOperationDuration.WithLabelValues(fromModel, toModel).Observe(duration.Seconds())
 	}
 
 	// Update current model

@@ -85,37 +85,6 @@ func (as *AutoScaler) updateConfigMap(ctx context.Context, modelConfig *ModelCon
 	return nil
 }
 
-// restartDeployment restarts the deployment by deleting all pods
-func (as *AutoScaler) restartDeployment(ctx context.Context) error {
-	// Get the deployment to find the selector
-	dep, err := as.clientset.AppsV1().Deployments(as.config.Namespace).Get(
-		ctx,
-		as.config.Deployment,
-		metav1.GetOptions{},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to get deployment: %w", err)
-	}
-
-	// Delete all pods matching the deployment selector
-	deletePolicy := metav1.DeletePropagationForeground
-	err = as.clientset.CoreV1().Pods(as.config.Namespace).DeleteCollection(
-		ctx,
-		metav1.DeleteOptions{
-			PropagationPolicy: &deletePolicy,
-		},
-		metav1.ListOptions{
-			LabelSelector: metav1.FormatLabelSelector(dep.Spec.Selector),
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to delete pods: %w", err)
-	}
-
-	log.Printf("Restarted deployment %s/%s", as.config.Namespace, as.config.Deployment)
-	return nil
-}
-
 // switchModelWithLock switches to the requested model with proper locking
 func (as *AutoScaler) switchModelWithLock(ctx context.Context, requestedModel string) error {
 	as.mu.Lock()
@@ -208,13 +177,13 @@ func (as *AutoScaler) switchModel(ctx context.Context, requestedModel string) er
 	}
 
 	// Wait for the new deployment to be ready
-	if err := as.waitForReady(ctx, as.config.GetModelSwitchTimeout()); err != nil {
-		as.metrics.RecordModelSwitch(fromModel, toModel, false, time.Since(start))
+	if err := as.waitForReady(ctx, as.config.GetManagedTimeout()); err != nil {
+		as.metrics.RecordManagedOperation(fromModel, toModel, false, time.Since(start))
 		return fmt.Errorf("failed to wait for deployment ready: %w", err)
 	}
 
 	// Record successful switch
-	as.metrics.RecordModelSwitch(fromModel, toModel, true, time.Since(start))
+	as.metrics.RecordManagedOperation(fromModel, toModel, true, time.Since(start))
 
 	log.Printf("Successfully switched to model %s", modelProfile.ServedModelName)
 	return nil

@@ -51,7 +51,9 @@ func TestAutoScaler_updateActivity(t *testing.T) {
 	as := &AutoScaler{
 		config:       config,
 		lastActivity: time.Now().Add(-10 * time.Minute),
+		metrics:      NewMetricsRecorder(),
 	}
+	defer as.metrics.Stop()
 
 	oldActivity := as.lastActivity
 
@@ -157,15 +159,15 @@ func TestAutoScaler_ConcurrentScaleUp(t *testing.T) {
 func TestAutoScaler_ModelSwitchConcurrency(t *testing.T) {
 	// Test that model switch synchronization works
 	config := &Config{
-		Namespace:          "default",
-		Deployment:         "vllm",
-		TargetHost:         "vllm-svc",
-		TargetPort:         "80",
-		IdleTimeout:        "5m",
-		Port:               "8080",
-		EnableModelSwitch:  true,
-		ConfigMapName:      "vllm-config",
-		ModelSwitchTimeout: "5m",
+		Namespace:      "default",
+		Deployment:     "vllm",
+		TargetHost:     "vllm-svc",
+		TargetPort:     "80",
+		IdleTimeout:    "5m",
+		Port:           "8080",
+		EnableManaged:  true,
+		ConfigMapName:  "vllm-config",
+		ManagedTimeout: "5m",
 	}
 
 	as := &AutoScaler{

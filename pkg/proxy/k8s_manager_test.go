@@ -232,9 +232,23 @@ func TestK8sManager_BuildEnvVars(t *testing.T) {
 	}
 
 	envVarMap := make(map[string]bool)
+	// These env vars have hardcoded values or use SecretKeyRef, not ConfigMapKeyRef
+	skipConfigMapCheck := map[string]bool{
+		"HUGGING_FACE_HUB_TOKEN":       true,
+		"TORCH_CUDA_ARCH_LIST":         true,
+		"OMP_NUM_THREADS":              true,
+		"HF_TOKEN":                     true,
+		"VLLM_TORCH_COMPILE_CACHE_DIR": true,
+		"HF_HUB_ENABLE_HF_TRANSFER":    true,
+	}
+
 	for _, ev := range envVars {
 		envVarMap[ev.Name] = true
-		// Verify all env vars reference the correct ConfigMap
+		// Skip env vars that don't use ConfigMapKeyRef
+		if skipConfigMapCheck[ev.Name] {
+			continue
+		}
+		// Verify all other env vars reference the correct ConfigMap
 		if ev.ValueFrom == nil || ev.ValueFrom.ConfigMapKeyRef == nil {
 			t.Errorf("Env var %s missing ConfigMapKeyRef", ev.Name)
 			continue
@@ -273,12 +287,18 @@ func TestK8sManager_BuildPodSpec(t *testing.T) {
 		t.Errorf("Container image = %v, want vllm/vllm-openai:latest", container.Image)
 	}
 
-	if len(container.Ports) != 1 {
-		t.Fatalf("Expected 1 port, got %d", len(container.Ports))
+	if len(container.Ports) != 2 {
+		t.Fatalf("Expected 2 ports, got %d", len(container.Ports))
 	}
 
+	// Check HTTP port (8000)
 	if container.Ports[0].ContainerPort != 8000 {
-		t.Errorf("Container port = %v, want 8000", container.Ports[0].ContainerPort)
+		t.Errorf("Container HTTP port = %v, want 8000", container.Ports[0].ContainerPort)
+	}
+
+	// Check metrics port (8001)
+	if container.Ports[1].ContainerPort != 8001 {
+		t.Errorf("Container metrics port = %v, want 8001", container.Ports[1].ContainerPort)
 	}
 
 	if container.ReadinessProbe == nil {

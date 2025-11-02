@@ -1,3 +1,4 @@
+// Package proxy provides the HTTP proxy and autoscaling logic for vLLM deployments.
 package proxy
 
 import (
@@ -81,8 +82,8 @@ func NewAutoScaler(config *Config) (*AutoScaler, error) {
 	as.scaleUpCond = sync.NewCond(&as.mu)
 	as.modelSwitchCond = sync.NewCond(&as.mu)
 
-	// If model switching is enabled, ensure K8s resources exist
-	if config.EnableModelSwitch {
+	// If managed mode is enabled, ensure K8s resources exist
+	if config.EnableManaged {
 		ctx := context.Background()
 		// Get the first available model from CRD as initial model
 		models, err := as.crdClient.ListModels(ctx)
@@ -270,7 +271,7 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 	// Update activity
 	as.updateActivity()
 
-	// Check if a model switch is in progress
+	// Check if a managed operation is in progress
 	as.mu.RLock()
 	if as.isSwitchingModel {
 		switchingTo := as.switchingToModel
@@ -284,21 +285,23 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 			"error": map[string]interface{}{
 				"message": fmt.Sprintf("Model '%s' is currently loading. Please wait and retry in a few moments.", switchingTo),
 				"type":    "model_loading",
-				"code":    "model_switching_in_progress",
+				"code":    "managed_operation_in_progress",
 			},
 		}
-		json.NewEncoder(rw).Encode(response)
+		if err := json.NewEncoder(rw).Encode(response); err != nil {
+			log.Printf("Failed to encode response: %v", err)
+		}
 		return
 	}
 	as.mu.RUnlock()
 
-	// If model switching is enabled and this is a chat completion request, handle model switching
-	if as.config.EnableModelSwitch && r.URL.Path == "/v1/chat/completions" && r.Method == "POST" {
+	// If managed mode is enabled and this is a chat completion request, handle model management
+	if as.config.EnableManaged && r.URL.Path == "/v1/chat/completions" && r.Method == "POST" {
 		// Extract the requested model from the request
 		requestedModel, err := extractModelFromRequest(r)
 		if err != nil {
 			log.Printf("Failed to extract model from request: %v", err)
-			// Continue without model switching
+			// Continue without model management
 		} else if requestedModel != "" {
 			// Try to switch to the requested model
 			if err := as.switchModelWithLock(ctx, requestedModel); err != nil {
@@ -308,11 +311,13 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 				response := map[string]interface{}{
 					"error": map[string]interface{}{
 						"message": fmt.Sprintf("Failed to switch to model '%s': %v", requestedModel, err),
-						"type":    "model_switch_error",
-						"code":    "model_switch_failed",
+						"type":    "managed_operation_error",
+						"code":    "managed_operation_failed",
 					},
 				}
-				json.NewEncoder(rw).Encode(response)
+				if err := json.NewEncoder(rw).Encode(response); err != nil {
+					log.Printf("Failed to encode response: %v", err)
+				}
 				return
 			}
 		}
@@ -331,13 +336,15 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 				"code":    "scaling_up",
 			},
 		}
-		json.NewEncoder(rw).Encode(response)
+		if err := json.NewEncoder(rw).Encode(response); err != nil {
+			log.Printf("Failed to encode response: %v", err)
+		}
 		return
 	}
 
 	// Proxy the request
 	proxy := httputil.NewSingleHostReverseProxy(as.targetURL)
-	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
 		log.Printf("Proxy error: %v", err)
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
 	}
@@ -346,9 +353,11 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // healthHandler handles health check requests
-func (as *AutoScaler) healthHandler(w http.ResponseWriter, r *http.Request) {
+func (as *AutoScaler) healthHandler(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	io.WriteString(w, "OK")
+	if _, err := io.WriteString(w, "OK"); err != nil {
+		log.Printf("Failed to write health response: %v", err)
+	}
 }
 
 // startIdleChecker starts a background goroutine that checks for idle time
