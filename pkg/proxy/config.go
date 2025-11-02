@@ -15,7 +15,6 @@ type Config struct {
 	IdleTimeout    string
 	ManagedTimeout string
 	Port           string
-	EnableManaged  bool
 	EnableMetrics  bool
 	LogOutput      bool
 }
@@ -28,8 +27,8 @@ func (c *Config) Validate() error {
 	if c.Deployment == "" {
 		return fmt.Errorf("deployment cannot be empty")
 	}
-	if c.EnableManaged && c.ConfigMapName == "" {
-		return fmt.Errorf("configmap name cannot be empty when managed mode is enabled")
+	if c.ConfigMapName == "" {
+		return fmt.Errorf("configmap name cannot be empty")
 	}
 	if c.TargetHost == "" {
 		return fmt.Errorf("target host cannot be empty")
@@ -40,10 +39,8 @@ func (c *Config) Validate() error {
 	if _, err := time.ParseDuration(c.IdleTimeout); err != nil {
 		return fmt.Errorf("invalid idle timeout: %w", err)
 	}
-	if c.EnableManaged {
-		if _, err := time.ParseDuration(c.ManagedTimeout); err != nil {
-			return fmt.Errorf("invalid managed timeout: %w", err)
-		}
+	if _, err := time.ParseDuration(c.ManagedTimeout); err != nil {
+		return fmt.Errorf("invalid managed timeout: %w", err)
 	}
 	return nil
 }

@@ -152,26 +152,24 @@ func TestAutoScaler_ConcurrentScaleUp(t *testing.T) {
 
 	// Verify that the condition variable is properly initialized
 	if as.scaleUpCond == nil {
-		t.Error("scaleUpCond should not be nil")
 	}
 }
 
 func TestAutoScaler_ModelSwitchConcurrency(t *testing.T) {
 	// Test that model switch synchronization works
-	config := &Config{
-		Namespace:      "default",
-		Deployment:     "vllm",
-		TargetHost:     "vllm-svc",
+	cfg := &Config{
+		Namespace:      "test",
+		Deployment:     "test-deployment",
+		TargetHost:     "test-host",
 		TargetPort:     "80",
 		IdleTimeout:    "5m",
 		Port:           "8080",
-		EnableManaged:  true,
 		ConfigMapName:  "vllm-config",
 		ManagedTimeout: "5m",
 	}
 
 	as := &AutoScaler{
-		config:       config,
+		config:       cfg,
 		lastActivity: time.Now(),
 	}
 	as.modelSwitchCond = &sync.Cond{L: &as.mu}

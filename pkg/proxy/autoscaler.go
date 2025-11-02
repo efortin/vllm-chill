@@ -82,22 +82,20 @@ func NewAutoScaler(config *Config) (*AutoScaler, error) {
 	as.scaleUpCond = sync.NewCond(&as.mu)
 	as.modelSwitchCond = sync.NewCond(&as.mu)
 
-	// If managed mode is enabled, ensure K8s resources exist
-	if config.EnableManaged {
-		ctx := context.Background()
-		// Get the first available model from CRD as initial model
-		models, err := as.crdClient.ListModels(ctx)
-		if err != nil || len(models) == 0 {
-			log.Printf("Warning: No VLLMModels found. Resources will be created when first model is requested.")
+	// Ensure K8s resources exist (managed mode is always enabled)
+	ctx := context.Background()
+	// Get the first available model from CRD as initial model
+	models, err := as.crdClient.ListModels(ctx)
+	if err != nil || len(models) == 0 {
+		log.Printf("Warning: No VLLMModels found. Resources will be created when first model is requested.")
+	} else {
+		// Use the first model as initial configuration
+		initialModel, err := as.crdClient.GetModel(ctx, models[0].Spec.ServedModelName)
+		if err != nil {
+			log.Printf("Warning: Failed to get initial model config: %v", err)
 		} else {
-			// Use the first model as initial configuration
-			initialModel, err := as.crdClient.GetModel(ctx, models[0].Spec.ServedModelName)
-			if err != nil {
-				log.Printf("Warning: Failed to get initial model config: %v", err)
-			} else {
-				if err := as.k8sManager.EnsureVLLMResources(ctx, initialModel); err != nil {
-					log.Printf("Warning: Failed to ensure vLLM resources: %v", err)
-				}
+			if err := as.k8sManager.EnsureVLLMResources(ctx, initialModel); err != nil {
+				log.Printf("Warning: Failed to ensure vLLM resources: %v", err)
 			}
 		}
 	}
@@ -135,8 +133,28 @@ func (as *AutoScaler) scaleDeployment(ctx context.Context, replicas int32) error
 		metav1.GetOptions{},
 	)
 	if err != nil {
-		as.metrics.RecordScaleOp(direction, false, time.Since(start))
-		return err
+		// If deployment doesn't exist and we're scaling up, try to create resources first
+		if replicas > 0 {
+			log.Printf("Deployment not found, attempting to create resources...")
+			if createErr := as.ensureResourcesExist(ctx); createErr != nil {
+				log.Printf("Failed to create resources: %v", createErr)
+				as.metrics.RecordScaleOp(direction, false, time.Since(start))
+				return fmt.Errorf("deployment not found and failed to create: %w", createErr)
+			}
+			// Try to get deployment again after creation
+			dep, err = as.clientset.AppsV1().Deployments(as.config.Namespace).Get(
+				ctx,
+				as.config.Deployment,
+				metav1.GetOptions{},
+			)
+			if err != nil {
+				as.metrics.RecordScaleOp(direction, false, time.Since(start))
+				return fmt.Errorf("deployment still not found after creation: %w", err)
+			}
+		} else {
+			as.metrics.RecordScaleOp(direction, false, time.Since(start))
+			return err
+		}
 	}
 
 	dep.Spec.Replicas = &replicas
@@ -154,6 +172,31 @@ func (as *AutoScaler) scaleDeployment(ctx context.Context, replicas int32) error
 	as.metrics.UpdateReplicas(replicas)
 
 	log.Printf("Scaled %s/%s to %d replicas", as.config.Namespace, as.config.Deployment, replicas)
+	return nil
+}
+
+// ensureResourcesExist ensures that the deployment, service, and configmap exist
+func (as *AutoScaler) ensureResourcesExist(ctx context.Context) error {
+	log.Printf("Ensuring vLLM resources exist...")
+
+	// Try to get the first available model from CRD
+	models, err := as.crdClient.ListModels(ctx)
+	if err != nil || len(models) == 0 {
+		return fmt.Errorf("no VLLMModels found in CRD, cannot create resources")
+	}
+
+	// Use the first model as initial configuration
+	initialModel, err := as.crdClient.GetModel(ctx, models[0].Spec.ServedModelName)
+	if err != nil {
+		return fmt.Errorf("failed to get initial model config: %w", err)
+	}
+
+	// Ensure all resources exist
+	if err := as.k8sManager.EnsureVLLMResources(ctx, initialModel); err != nil {
+		return fmt.Errorf("failed to ensure vLLM resources: %w", err)
+	}
+
+	log.Printf("Successfully ensured vLLM resources exist")
 	return nil
 }
 
@@ -295,8 +338,8 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	as.mu.RUnlock()
 
-	// If managed mode is enabled and this is a chat completion request, handle model management
-	if as.config.EnableManaged && r.URL.Path == "/v1/chat/completions" && r.Method == "POST" {
+	// Handle model management for chat completion requests (managed mode is always enabled)
+	if r.URL.Path == "/v1/chat/completions" && r.Method == "POST" {
 		// Extract the requested model from the request
 		requestedModel, err := extractModelFromRequest(r)
 		if err != nil {

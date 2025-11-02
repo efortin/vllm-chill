@@ -30,21 +30,27 @@ func NewK8sManager(clientset kubernetes.Interface, config *Config) *K8sManager {
 
 // EnsureVLLMResources ensures the vLLM deployment, service, and configmap exist
 func (m *K8sManager) EnsureVLLMResources(ctx context.Context, initialModel *ModelConfig) error {
+	log.Printf("EnsureVLLMResources: Starting resource creation/verification for model %s", initialModel.ServedModelName)
+
 	// Ensure ConfigMap exists
+	log.Printf("EnsureVLLMResources: Ensuring ConfigMap %s/%s", m.config.Namespace, m.config.ConfigMapName)
 	if err := m.ensureConfigMap(ctx, initialModel); err != nil {
 		return fmt.Errorf("failed to ensure configmap: %w", err)
 	}
 
 	// Ensure Service exists
+	log.Printf("EnsureVLLMResources: Ensuring Service %s/%s", m.config.Namespace, m.config.TargetHost)
 	if err := m.ensureService(ctx); err != nil {
 		return fmt.Errorf("failed to ensure service: %w", err)
 	}
 
 	// Ensure Deployment exists
+	log.Printf("EnsureVLLMResources: Ensuring Deployment %s/%s", m.config.Namespace, m.config.Deployment)
 	if err := m.ensureDeployment(ctx); err != nil {
 		return fmt.Errorf("failed to ensure deployment: %w", err)
 	}
 
+	log.Printf("EnsureVLLMResources: All resources verified/created successfully")
 	return nil
 }
 
@@ -88,6 +94,7 @@ func (m *K8sManager) ensureConfigMap(ctx context.Context, modelConfig *ModelConf
 
 // ensureService creates the vLLM service if it doesn't exist
 func (m *K8sManager) ensureService(ctx context.Context) error {
+	log.Printf("ensureService: Checking if service %s/%s exists", m.config.Namespace, m.config.TargetHost)
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      m.config.TargetHost,
@@ -122,24 +129,28 @@ func (m *K8sManager) ensureService(ctx context.Context) error {
 	_, err := m.clientset.CoreV1().Services(m.config.Namespace).Get(ctx, m.config.TargetHost, metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
+			log.Printf("ensureService: Service not found, creating new service...")
 			// Create new Service
 			_, err = m.clientset.CoreV1().Services(m.config.Namespace).Create(ctx, service, metav1.CreateOptions{})
 			if err != nil {
+				log.Printf("ensureService: Failed to create service: %v", err)
 				return fmt.Errorf("failed to create service: %w", err)
 			}
-			log.Printf("Created Service %s/%s", m.config.Namespace, m.config.TargetHost)
+			log.Printf("ensureService: Successfully created Service %s/%s", m.config.Namespace, m.config.TargetHost)
 			return nil
 		}
+		log.Printf("ensureService: Error getting service: %v", err)
 		return fmt.Errorf("failed to get service: %w", err)
 	}
 
 	// Service already exists
-	log.Printf("Service %s/%s already exists", m.config.Namespace, m.config.TargetHost)
+	log.Printf("ensureService: Service %s/%s already exists", m.config.Namespace, m.config.TargetHost)
 	return nil
 }
 
 // ensureDeployment creates the vLLM deployment if it doesn't exist
 func (m *K8sManager) ensureDeployment(ctx context.Context) error {
+	log.Printf("ensureDeployment: Checking if deployment %s/%s exists", m.config.Namespace, m.config.Deployment)
 	replicas := int32(0) // Start at 0, proxy will scale up on demand
 
 	deployment := &appsv1.Deployment{
@@ -175,19 +186,22 @@ func (m *K8sManager) ensureDeployment(ctx context.Context) error {
 	_, err := m.clientset.AppsV1().Deployments(m.config.Namespace).Get(ctx, m.config.Deployment, metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
+			log.Printf("ensureDeployment: Deployment not found, creating new deployment...")
 			// Create new Deployment
 			_, err = m.clientset.AppsV1().Deployments(m.config.Namespace).Create(ctx, deployment, metav1.CreateOptions{})
 			if err != nil {
+				log.Printf("ensureDeployment: Failed to create deployment: %v", err)
 				return fmt.Errorf("failed to create deployment: %w", err)
 			}
-			log.Printf("Created Deployment %s/%s", m.config.Namespace, m.config.Deployment)
+			log.Printf("ensureDeployment: Successfully created Deployment %s/%s", m.config.Namespace, m.config.Deployment)
 			return nil
 		}
+		log.Printf("ensureDeployment: Error getting deployment: %v", err)
 		return fmt.Errorf("failed to get deployment: %w", err)
 	}
 
 	// Deployment already exists
-	log.Printf("Deployment %s/%s already exists", m.config.Namespace, m.config.Deployment)
+	log.Printf("ensureDeployment: Deployment %s/%s already exists", m.config.Namespace, m.config.Deployment)
 	return nil
 }
 
