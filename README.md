@@ -30,8 +30,11 @@ For home labs and small clusters with limited GPUs, this is costly when vLLM sit
 - ✅ **CRD-Based Model Switching**: Define models as Kubernetes resources, switch dynamically (see [docs/CRD_GUIDE.md](docs/CRD_GUIDE.md))
 - ✅ **Automatic K8s Resource Management**: Creates and manages Deployment, Service, and ConfigMap when model switching is enabled (see [docs/K8S_RESOURCE_MANAGEMENT.md](docs/K8S_RESOURCE_MANAGEMENT.md))
 - ✅ **User-Friendly Loading**: Returns helpful messages during model switches
+- ✅ **Prometheus Metrics**: Comprehensive metrics for monitoring (see [docs/METRICS.md](docs/METRICS.md))
+- ✅ **Output Logging**: Optional logging of generated output for debugging
 - ✅ **Connection Buffering**: Keeps connections open during scale-up (up to 2 minutes)
 - ✅ **Ultra Lightweight**: ~2MB Docker image (FROM scratch), <50MB RAM usage
+- ✅ **High Performance**: Negligible proxy overhead (<0.01% of inference time) (see [docs/PERFORMANCE.md](docs/PERFORMANCE.md))
 - ✅ **Simple**: Single Go binary, no external dependencies (just k8s client-go)
 - ✅ **Validated**: CRD enforces valid vLLM parameters (dtype, parsers, etc.)
 - ✅ **CLI with Cobra**: Clean command-line interface
@@ -148,6 +151,8 @@ Flags:
   --model-switch-timeout string   Timeout for model switching (default "5m")
   --port string                   HTTP server port (default "8080")
   --enable-model-switch           Enable dynamic model switching (default false)
+  --enable-metrics                Enable Prometheus metrics endpoint (default true)
+  --log-output                    Log response bodies (use with caution)
 ```
 
 For details on dynamic model switching, see [docs/CRD_GUIDE.md](docs/CRD_GUIDE.md).
@@ -165,8 +170,12 @@ All flags can be set via environment variables:
 - `MODEL_SWITCH_TIMEOUT`
 - `PORT`
 - `ENABLE_MODEL_SWITCH`
+- `ENABLE_METRICS`
+- `LOG_OUTPUT`
 
 ## Monitoring
+
+### Health Checks
 
 ```bash
 # View logs
@@ -179,31 +188,78 @@ curl http://localhost:8080/health
 kubectl -n ai-apps get pods -l app=vllm-chill
 ```
 
+### Prometheus Metrics
+
+vLLM-Chill exposes comprehensive metrics at `/metrics`:
+
+```bash
+# View metrics
+curl http://localhost:8080/metrics
+```
+
+**Available metrics:**
+- Request count, latency, payload size
+- Model switch operations and duration
+- Scale operations and duration
+- Current state (replicas, idle time, loaded model)
+
+See [docs/METRICS.md](docs/METRICS.md) for complete documentation.
+
+**Quick Grafana queries:**
+
+```promql
+# Request rate
+rate(vllm_chill_requests_total[5m])
+
+# Request latency p95
+histogram_quantile(0.95, rate(vllm_chill_request_duration_seconds_bucket[5m]))
+
+# Model switch success rate
+sum(rate(vllm_chill_model_switches_total{status="success"}[5m])) / sum(rate(vllm_chill_model_switches_total[5m]))
+```
+
 ## Project Structure
 
 ```
 .
 ├── cmd/
-│   └── autoscaler/         # Main entry point
-│       ├── cmd/            # Cobra commands
+│   └── autoscaler/                # Main entry point
+│       ├── cmd/                   # Cobra commands
 │       └── main.go
 ├── pkg/
-│   └── proxy/              # Core proxy logic
-│       ├── autoscaler.go
-│       ├── autoscaler_test.go
-│       ├── config.go
-│       └── config_test.go
+│   └── proxy/                     # Core proxy logic
+│       ├── autoscaler.go          # Main autoscaler logic
+│       ├── config.go              # Configuration
+│       ├── crd_client.go          # CRD client for model definitions
+│       ├── k8s_manager.go         # Kubernetes resource management
+│       ├── models.go              # Model configuration structures
+│       ├── model_switcher.go     # Model switching logic
+│       ├── metrics.go             # Prometheus metrics
+│       ├── response_writer.go     # HTTP response capture
+│       └── *_test.go              # Tests
 ├── docs/
-│   ├── ARCHITECTURE.md     # Architecture decisions
-│   └── DOCKER_BUILD.md     # Multi-arch build strategy
+│   ├── ARCHITECTURE.md            # Architecture decisions
+│   ├── CRD_GUIDE.md               # Model CRD documentation
+│   ├── K8S_RESOURCE_MANAGEMENT.md # Resource management
+│   ├── METRICS.md                 # Prometheus metrics guide
+│   ├── PERFORMANCE.md             # Performance analysis
+│   └── DOCKER_BUILD.md            # Multi-arch build strategy
+├── examples/
+│   └── kubernetes-with-model-switching.yaml
 ├── .github/
-│   └── workflows/          # GitHub Actions CI/CD
-├── Dockerfile              # Multi-stage build (manual)
-├── Dockerfile.goreleaser   # Minimal build (releases)
-├── .goreleaser.yml         # GoReleaser configuration
-├── Taskfile.yml            # Task automation (4 tasks)
+│   └── workflows/                 # GitHub Actions CI/CD
+├── Dockerfile                     # Multi-stage build (manual)
+├── Dockerfile.goreleaser          # Minimal build (releases)
+├── .goreleaser.yml                # GoReleaser configuration
+├── Taskfile.yml                   # Task automation
 └── README.md
 ```
+
+The codebase is organized into logical modules:
+- **cmd/autoscaler**: CLI entry point
+- **pkg/proxy**: Core functionality (autoscaling, model switching, metrics)
+- **docs**: Comprehensive documentation
+- **examples**: Sample Kubernetes manifests
 
 ## Multi-Architecture Builds
 

@@ -159,6 +159,8 @@ func (as *AutoScaler) switchModelWithLock(ctx context.Context, requestedModel st
 
 // switchModel switches to the requested model if it's different from the current one
 func (as *AutoScaler) switchModel(ctx context.Context, requestedModel string) error {
+	start := time.Now()
+
 	// Get the model profile from CRD
 	modelProfile, err := as.crdClient.GetModel(ctx, requestedModel)
 	if err != nil {
@@ -182,7 +184,10 @@ func (as *AutoScaler) switchModel(ctx context.Context, requestedModel string) er
 		return nil
 	}
 
-	log.Printf("Switching from %s to %s...", currentConfig.ServedModelName, modelProfile.ServedModelName)
+	fromModel := currentConfig.ServedModelName
+	toModel := modelProfile.ServedModelName
+
+	log.Printf("Switching from %s to %s...", fromModel, toModel)
 
 	// Scale down to 0 first (unload current model)
 	if err := as.scaleDeployment(ctx, 0); err != nil {
@@ -204,8 +209,12 @@ func (as *AutoScaler) switchModel(ctx context.Context, requestedModel string) er
 
 	// Wait for the new deployment to be ready
 	if err := as.waitForReady(ctx, as.config.GetModelSwitchTimeout()); err != nil {
+		as.metrics.RecordModelSwitch(fromModel, toModel, false, time.Since(start))
 		return fmt.Errorf("failed to wait for deployment ready: %w", err)
 	}
+
+	// Record successful switch
+	as.metrics.RecordModelSwitch(fromModel, toModel, true, time.Since(start))
 
 	log.Printf("Successfully switched to model %s", modelProfile.ServedModelName)
 	return nil

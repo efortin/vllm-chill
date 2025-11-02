@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -37,6 +38,7 @@ type AutoScaler struct {
 	isSwitchingModel bool
 	switchingToModel string
 	modelSwitchCond  *sync.Cond
+	metrics          *MetricsRecorder
 }
 
 // NewAutoScaler creates a new AutoScaler instance
@@ -74,6 +76,7 @@ func NewAutoScaler(config *Config) (*AutoScaler, error) {
 		config:       config,
 		targetURL:    targetURL,
 		lastActivity: time.Now(),
+		metrics:      NewMetricsRecorder(),
 	}
 	as.scaleUpCond = sync.NewCond(&as.mu)
 	as.modelSwitchCond = sync.NewCond(&as.mu)
@@ -119,12 +122,19 @@ func (as *AutoScaler) getReplicas(ctx context.Context) (int32, error) {
 
 // scaleDeployment scales the deployment to the specified number of replicas
 func (as *AutoScaler) scaleDeployment(ctx context.Context, replicas int32) error {
+	start := time.Now()
+	direction := "up"
+	if replicas == 0 {
+		direction = "down"
+	}
+
 	dep, err := as.clientset.AppsV1().Deployments(as.config.Namespace).Get(
 		ctx,
 		as.config.Deployment,
 		metav1.GetOptions{},
 	)
 	if err != nil {
+		as.metrics.RecordScaleOp(direction, false, time.Since(start))
 		return err
 	}
 
@@ -135,8 +145,12 @@ func (as *AutoScaler) scaleDeployment(ctx context.Context, replicas int32) error
 		metav1.UpdateOptions{},
 	)
 	if err != nil {
+		as.metrics.RecordScaleOp(direction, false, time.Since(start))
 		return err
 	}
+
+	as.metrics.RecordScaleOp(direction, true, time.Since(start))
+	as.metrics.UpdateReplicas(replicas)
 
 	log.Printf("Scaled %s/%s to %d replicas", as.config.Namespace, as.config.Deployment, replicas)
 	return nil
@@ -223,11 +237,35 @@ func (as *AutoScaler) updateActivity() {
 	as.mu.Lock()
 	defer as.mu.Unlock()
 	as.lastActivity = time.Now()
+	as.metrics.UpdateActivity()
 }
 
 // proxyHandler handles incoming HTTP requests
 func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	ctx := r.Context()
+
+	// Wrap request body to capture size
+	var requestSize int64
+	if r.Body != nil {
+		bodyReader := newBodyReader(r.Body)
+		r.Body = bodyReader
+		defer func() {
+			requestSize = bodyReader.BytesRead()
+		}()
+	}
+
+	// Wrap response writer to capture status and size
+	rw := newResponseWriter(w, as.config.LogOutput)
+	defer func() {
+		duration := time.Since(start)
+		as.metrics.RecordRequest(r.Method, r.URL.Path, rw.Status(), duration, requestSize, rw.Size())
+
+		// Log output if enabled
+		if as.config.LogOutput && len(rw.Body()) > 0 {
+			log.Printf("Response body for %s %s: %s", r.Method, r.URL.Path, string(rw.Body()))
+		}
+	}()
 
 	// Update activity
 	as.updateActivity()
@@ -239,9 +277,9 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 		as.mu.RUnlock()
 
 		// Return a user-friendly message
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Retry-After", "30")
-		w.WriteHeader(http.StatusServiceUnavailable)
+		rw.Header().Set("Content-Type", "application/json")
+		rw.Header().Set("Retry-After", "30")
+		rw.WriteHeader(http.StatusServiceUnavailable)
 		response := map[string]interface{}{
 			"error": map[string]interface{}{
 				"message": fmt.Sprintf("Model '%s' is currently loading. Please wait and retry in a few moments.", switchingTo),
@@ -249,7 +287,7 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 				"code":    "model_switching_in_progress",
 			},
 		}
-		json.NewEncoder(w).Encode(response)
+		json.NewEncoder(rw).Encode(response)
 		return
 	}
 	as.mu.RUnlock()
@@ -265,8 +303,8 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 			// Try to switch to the requested model
 			if err := as.switchModelWithLock(ctx, requestedModel); err != nil {
 				log.Printf("Failed to switch model: %v", err)
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusServiceUnavailable)
+				rw.Header().Set("Content-Type", "application/json")
+				rw.WriteHeader(http.StatusServiceUnavailable)
 				response := map[string]interface{}{
 					"error": map[string]interface{}{
 						"message": fmt.Sprintf("Failed to switch to model '%s': %v", requestedModel, err),
@@ -274,7 +312,7 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 						"code":    "model_switch_failed",
 					},
 				}
-				json.NewEncoder(w).Encode(response)
+				json.NewEncoder(rw).Encode(response)
 				return
 			}
 		}
@@ -283,9 +321,9 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 	// Ensure deployment is scaled up
 	if err := as.ensureScaledUp(ctx); err != nil {
 		log.Printf("Failed to scale up: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Retry-After", "10")
-		w.WriteHeader(http.StatusServiceUnavailable)
+		rw.Header().Set("Content-Type", "application/json")
+		rw.Header().Set("Retry-After", "10")
+		rw.WriteHeader(http.StatusServiceUnavailable)
 		response := map[string]interface{}{
 			"error": map[string]interface{}{
 				"message": "Service is starting up. Please wait and retry in a few moments.",
@@ -293,7 +331,7 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 				"code":    "scaling_up",
 			},
 		}
-		json.NewEncoder(w).Encode(response)
+		json.NewEncoder(rw).Encode(response)
 		return
 	}
 
@@ -304,7 +342,7 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
 	}
 
-	proxy.ServeHTTP(w, r)
+	proxy.ServeHTTP(rw, r)
 }
 
 // healthHandler handles health check requests
@@ -347,9 +385,17 @@ func (as *AutoScaler) Start() error {
 	go as.startIdleChecker()
 
 	// Setup HTTP handlers
-	http.HandleFunc("/health", as.healthHandler)
-	http.HandleFunc("/readyz", as.healthHandler)
-	http.HandleFunc("/", as.proxyHandler)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", as.healthHandler)
+	mux.HandleFunc("/readyz", as.healthHandler)
 
-	return http.ListenAndServe(":"+as.config.Port, nil)
+	// Add metrics endpoint
+	if as.config.EnableMetrics {
+		mux.Handle("/metrics", promhttp.Handler())
+		log.Printf("   Metrics endpoint: http://0.0.0.0:%s/metrics", as.config.Port)
+	}
+
+	mux.HandleFunc("/", as.proxyHandler)
+
+	return http.ListenAndServe(":"+as.config.Port, mux)
 }

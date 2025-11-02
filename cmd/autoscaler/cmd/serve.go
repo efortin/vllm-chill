@@ -18,6 +18,8 @@ var (
 	modelSwitchTimeout string
 	port               string
 	enableModelSwitch  bool
+	enableMetrics      bool
+	logOutput          bool
 )
 
 var serveCmd = &cobra.Command{
@@ -41,6 +43,8 @@ The proxy will:
 			ModelSwitchTimeout: modelSwitchTimeout,
 			Port:               port,
 			EnableModelSwitch:  enableModelSwitch,
+			EnableMetrics:      enableMetrics,
+			LogOutput:          logOutput,
 		}
 
 		scaler, err := proxy.NewAutoScaler(config)
@@ -56,6 +60,12 @@ The proxy will:
 			log.Printf("   Model switching: enabled")
 			log.Printf("   ConfigMap: %s/%s", namespace, configMapName)
 			log.Printf("   Model switch timeout: %s", modelSwitchTimeout)
+		}
+		if enableMetrics {
+			log.Printf("   Metrics: enabled at /metrics")
+		}
+		if logOutput {
+			log.Printf("   Output logging: enabled")
 		}
 
 		return scaler.Start()
@@ -74,6 +84,8 @@ func init() {
 	serveCmd.Flags().StringVar(&modelSwitchTimeout, "model-switch-timeout", getEnvOrDefault("MODEL_SWITCH_TIMEOUT", "5m"), "Timeout for model switching")
 	serveCmd.Flags().StringVar(&port, "port", getEnvOrDefault("PORT", "8080"), "HTTP server port")
 	serveCmd.Flags().BoolVar(&enableModelSwitch, "enable-model-switch", getEnvOrDefault("ENABLE_MODEL_SWITCH", "false") == "true", "Enable dynamic model switching")
+	serveCmd.Flags().BoolVar(&enableMetrics, "enable-metrics", getEnvOrDefault("ENABLE_METRICS", "true") == "true", "Enable Prometheus metrics endpoint")
+	serveCmd.Flags().BoolVar(&logOutput, "log-output", getEnvOrDefault("LOG_OUTPUT", "false") == "true", "Log response bodies (use with caution, can be verbose)")
 }
 
 func getEnvOrDefault(key, defaultValue string) string {

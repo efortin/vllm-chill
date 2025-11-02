@@ -16,6 +16,8 @@ type Config struct {
 	ModelSwitchTimeout string
 	Port               string
 	EnableModelSwitch  bool
+	EnableMetrics      bool
+	LogOutput          bool
 }
 
 // Validate checks if the configuration is valid
