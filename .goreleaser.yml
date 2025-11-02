@@ -26,6 +26,10 @@ builds:
 
 archives:
   - id: default
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_
