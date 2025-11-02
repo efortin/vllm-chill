@@ -54,7 +54,7 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-send-timeout: "1800"
 spec:
   rules:
-    - host: vllm.example.com
+    - host: <your-domain>
       http:
         paths:
           - path: /
