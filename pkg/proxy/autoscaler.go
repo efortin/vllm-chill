@@ -27,6 +27,7 @@ const (
 type AutoScaler struct {
 	clientset        *kubernetes.Clientset
 	crdClient        *CRDClient
+	k8sManager       *K8sManager
 	config           *Config
 	targetURL        *url.URL
 	lastActivity     time.Time
@@ -69,12 +70,33 @@ func NewAutoScaler(config *Config) (*AutoScaler, error) {
 	as := &AutoScaler{
 		clientset:    clientset,
 		crdClient:    NewCRDClient(dynamicClient, config.Namespace),
+		k8sManager:   NewK8sManager(clientset, config),
 		config:       config,
 		targetURL:    targetURL,
 		lastActivity: time.Now(),
 	}
 	as.scaleUpCond = sync.NewCond(&as.mu)
 	as.modelSwitchCond = sync.NewCond(&as.mu)
+
+	// If model switching is enabled, ensure K8s resources exist
+	if config.EnableModelSwitch {
+		ctx := context.Background()
+		// Get the first available model from CRD as initial model
+		models, err := as.crdClient.ListModels(ctx)
+		if err != nil || len(models) == 0 {
+			log.Printf("Warning: No VLLMModels found. Resources will be created when first model is requested.")
+		} else {
+			// Use the first model as initial configuration
+			initialModel, err := as.crdClient.GetModel(ctx, models[0].Spec.ServedModelName)
+			if err != nil {
+				log.Printf("Warning: Failed to get initial model config: %v", err)
+			} else {
+				if err := as.k8sManager.EnsureVLLMResources(ctx, initialModel); err != nil {
+					log.Printf("Warning: Failed to ensure vLLM resources: %v", err)
+				}
+			}
+		}
+	}
 
 	return as, nil
 }
@@ -116,7 +138,7 @@ func (as *AutoScaler) scaleDeployment(ctx context.Context, replicas int32) error
 		return err
 	}
 
-	log.Printf("✅ Scaled %s/%s to %d replicas", as.config.Namespace, as.config.Deployment, replicas)
+	log.Printf("Scaled %s/%s to %d replicas", as.config.Namespace, as.config.Deployment, replicas)
 	return nil
 }
 
@@ -142,7 +164,7 @@ func (as *AutoScaler) waitForReady(ctx context.Context, timeout time.Duration) e
 				continue
 			}
 			if dep.Status.ReadyReplicas > 0 {
-				log.Printf("✅ Deployment %s/%s is ready", as.config.Namespace, as.config.Deployment)
+				log.Printf("Deployment %s/%s is ready", as.config.Namespace, as.config.Deployment)
 				return nil
 			}
 		}
@@ -170,7 +192,7 @@ func (as *AutoScaler) ensureScaledUp(ctx context.Context) error {
 
 	// If another goroutine is already scaling up, wait
 	if as.isScalingUp {
-		log.Printf("⏳ Waiting for ongoing scale-up...")
+		log.Printf("Waiting for ongoing scale-up...")
 		as.scaleUpCond.Wait()
 		return nil
 	}
@@ -182,7 +204,7 @@ func (as *AutoScaler) ensureScaledUp(ctx context.Context) error {
 		as.scaleUpCond.Broadcast()
 	}()
 
-	log.Printf("🔄 Scaling up %s/%s...", as.config.Namespace, as.config.Deployment)
+	log.Printf("Scaling up %s/%s...", as.config.Namespace, as.config.Deployment)
 
 	as.mu.Unlock()
 	err = as.scaleDeployment(ctx, 1)
@@ -237,12 +259,12 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 		// Extract the requested model from the request
 		requestedModel, err := extractModelFromRequest(r)
 		if err != nil {
-			log.Printf("⚠️  Failed to extract model from request: %v", err)
+			log.Printf("Failed to extract model from request: %v", err)
 			// Continue without model switching
 		} else if requestedModel != "" {
 			// Try to switch to the requested model
 			if err := as.switchModelWithLock(ctx, requestedModel); err != nil {
-				log.Printf("❌ Failed to switch model: %v", err)
+				log.Printf("Failed to switch model: %v", err)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusServiceUnavailable)
 				response := map[string]interface{}{
@@ -260,7 +282,7 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure deployment is scaled up
 	if err := as.ensureScaledUp(ctx); err != nil {
-		log.Printf("❌ Failed to scale up: %v", err)
+		log.Printf("Failed to scale up: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Retry-After", "10")
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -278,7 +300,7 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 	// Proxy the request
 	proxy := httputil.NewSingleHostReverseProxy(as.targetURL)
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		log.Printf("❌ Proxy error: %v", err)
+		log.Printf("Proxy error: %v", err)
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
 	}
 
@@ -305,14 +327,14 @@ func (as *AutoScaler) startIdleChecker() {
 			ctx := context.Background()
 			replicas, err := as.getReplicas(ctx)
 			if err != nil {
-				log.Printf("❌ Failed to get replicas: %v", err)
+				log.Printf("Failed to get replicas: %v", err)
 				continue
 			}
 
 			if replicas > 0 {
-				log.Printf("💤 Idle for %v, scaling to 0...", idleTime.Round(time.Second))
+				log.Printf("Idle for %v, scaling to 0...", idleTime.Round(time.Second))
 				if err := as.scaleDeployment(ctx, 0); err != nil {
-					log.Printf("❌ Failed to scale down: %v", err)
+					log.Printf("Failed to scale down: %v", err)
 				}
 			}
 		}

@@ -115,3 +115,73 @@ func TestOpenAIRequest_Parsing(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractModelFromRequest_BodyRestoration(t *testing.T) {
+	body := `{"model": "test-model", "messages": [{"role": "user", "content": "hello"}]}`
+	req := &http.Request{
+		Body: io.NopCloser(bytes.NewBufferString(body)),
+	}
+
+	model, err := extractModelFromRequest(req)
+	if err != nil {
+		t.Fatalf("extractModelFromRequest() error = %v", err)
+	}
+
+	if model != "test-model" {
+		t.Errorf("model = %v, want test-model", model)
+	}
+
+	// Read body again to verify restoration
+	restoredBody, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("Failed to read restored body: %v", err)
+	}
+
+	if string(restoredBody) != body {
+		t.Errorf("Body not properly restored.\nGot:  %s\nWant: %s", string(restoredBody), body)
+	}
+}
+
+func TestExtractModelFromRequest_LargePayload(t *testing.T) {
+	// Test with a large payload to ensure body restoration works
+	largeMessages := make([]map[string]string, 100)
+	for i := range largeMessages {
+		largeMessages[i] = map[string]string{
+			"role":    "user",
+			"content": "This is a test message with some content",
+		}
+	}
+
+	payload := map[string]interface{}{
+		"model":    "test-model",
+		"messages": largeMessages,
+	}
+
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("Failed to marshal payload: %v", err)
+	}
+
+	req := &http.Request{
+		Body: io.NopCloser(bytes.NewBuffer(bodyBytes)),
+	}
+
+	model, err := extractModelFromRequest(req)
+	if err != nil {
+		t.Fatalf("extractModelFromRequest() error = %v", err)
+	}
+
+	if model != "test-model" {
+		t.Errorf("model = %v, want test-model", model)
+	}
+
+	// Verify body can still be read
+	restoredBody, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("Failed to read restored body: %v", err)
+	}
+
+	if len(restoredBody) != len(bodyBytes) {
+		t.Errorf("Body length mismatch. Got %d, want %d", len(restoredBody), len(bodyBytes))
+	}
+}

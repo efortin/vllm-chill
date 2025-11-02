@@ -48,7 +48,7 @@ The proxy will:
 			return err
 		}
 
-		log.Printf("🚀 Starting vLLM AutoScaler on :%s", port)
+		log.Printf("Starting vLLM AutoScaler on :%s", port)
 		log.Printf("   Target: http://%s:%s", targetHost, targetPort)
 		log.Printf("   Deployment: %s/%s", namespace, deployment)
 		log.Printf("   Idle timeout: %s", idleTimeout)

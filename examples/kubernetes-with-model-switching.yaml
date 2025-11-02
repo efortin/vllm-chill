@@ -206,13 +206,19 @@ metadata:
 rules:
 - apiGroups: ["apps"]
   resources: ["deployments"]
-  verbs: ["get", "list", "update", "patch"]
+  verbs: ["get", "list", "create", "update", "patch"]
 - apiGroups: [""]
   resources: ["pods"]
   verbs: ["list", "delete", "deletecollection"]
 - apiGroups: [""]
   resources: ["configmaps"]
-  verbs: ["get", "update", "patch"]
+  verbs: ["get", "create", "update", "patch"]
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "create", "update", "patch"]
+- apiGroups: ["vllm.efortin.github.io"]
+  resources: ["vllmmodels"]
+  verbs: ["get", "list"]
 
 ---
 # RoleBinding for vllm-chill

@@ -81,7 +81,7 @@ func (as *AutoScaler) updateConfigMap(ctx context.Context, modelConfig *ModelCon
 		return fmt.Errorf("failed to update configmap: %w", err)
 	}
 
-	log.Printf("✅ Updated ConfigMap %s/%s with model: %s", as.config.Namespace, as.config.ConfigMapName, modelConfig.ServedModelName)
+	log.Printf("Updated ConfigMap %s/%s with model: %s", as.config.Namespace, as.config.ConfigMapName, modelConfig.ServedModelName)
 	return nil
 }
 
@@ -112,7 +112,7 @@ func (as *AutoScaler) restartDeployment(ctx context.Context) error {
 		return fmt.Errorf("failed to delete pods: %w", err)
 	}
 
-	log.Printf("✅ Restarted deployment %s/%s", as.config.Namespace, as.config.Deployment)
+	log.Printf("Restarted deployment %s/%s", as.config.Namespace, as.config.Deployment)
 	return nil
 }
 
@@ -127,7 +127,7 @@ func (as *AutoScaler) switchModelWithLock(ctx context.Context, requestedModel st
 
 		// If switching to the same model, just wait
 		if targetModel == requestedModel {
-			log.Printf("⏳ Model switch to %s already in progress, waiting...", requestedModel)
+			log.Printf("Model switch to %s already in progress, waiting...", requestedModel)
 			as.mu.Lock()
 			for as.isSwitchingModel && as.switchingToModel == requestedModel {
 				as.modelSwitchCond.Wait()
@@ -178,11 +178,11 @@ func (as *AutoScaler) switchModel(ctx context.Context, requestedModel string) er
 
 	// Check if we need to switch
 	if currentConfig.ServedModelName == modelProfile.ServedModelName {
-		log.Printf("✅ Model %s already loaded, no switch needed", requestedModel)
+		log.Printf("Model %s already loaded, no switch needed", requestedModel)
 		return nil
 	}
 
-	log.Printf("🔄 Switching from %s to %s...", currentConfig.ServedModelName, modelProfile.ServedModelName)
+	log.Printf("Switching from %s to %s...", currentConfig.ServedModelName, modelProfile.ServedModelName)
 
 	// Scale down to 0 first (unload current model)
 	if err := as.scaleDeployment(ctx, 0); err != nil {
@@ -207,6 +207,6 @@ func (as *AutoScaler) switchModel(ctx context.Context, requestedModel string) er
 		return fmt.Errorf("failed to wait for deployment ready: %w", err)
 	}
 
-	log.Printf("✅ Successfully switched to model %s", modelProfile.ServedModelName)
+	log.Printf("Successfully switched to model %s", modelProfile.ServedModelName)
 	return nil
 }

@@ -27,7 +27,8 @@ For home labs and small clusters with limited GPUs, this is costly when vLLM sit
 
 - ✅ **Scale to Zero**: Automatically scales to 0 replicas after 5 minutes of inactivity
 - ✅ **Automatic Wake**: Scales to 1 replica on first request
-- ✅ **CRD-Based Model Switching**: Define models as Kubernetes resources, switch dynamically (see [CRD_GUIDE.md](CRD_GUIDE.md))
+- ✅ **CRD-Based Model Switching**: Define models as Kubernetes resources, switch dynamically (see [docs/CRD_GUIDE.md](docs/CRD_GUIDE.md))
+- ✅ **Automatic K8s Resource Management**: Creates and manages Deployment, Service, and ConfigMap when model switching is enabled (see [docs/K8S_RESOURCE_MANAGEMENT.md](docs/K8S_RESOURCE_MANAGEMENT.md))
 - ✅ **User-Friendly Loading**: Returns helpful messages during model switches
 - ✅ **Connection Buffering**: Keeps connections open during scale-up (up to 2 minutes)
 - ✅ **Ultra Lightweight**: ~2MB Docker image (FROM scratch), <50MB RAM usage
@@ -149,7 +150,7 @@ Flags:
   --enable-model-switch           Enable dynamic model switching (default false)
 ```
 
-For details on dynamic model switching, see [MODEL_SWITCHING.md](MODEL_SWITCHING.md).
+For details on dynamic model switching, see [docs/CRD_GUIDE.md](docs/CRD_GUIDE.md).
 
 ### Environment Variables
 
@@ -217,7 +218,7 @@ See [docs/DOCKER_BUILD.md](docs/DOCKER_BUILD.md) for technical details.
 **Performance**:
 - Manual build: ~2-3 minutes
 - GoReleaser (with emulation): ~5-8 minutes per arch
-- GoReleaser (native): ~30 seconds per arch 🚀
+- GoReleaser (native): ~30 seconds per arch
 
 ## CI/CD
 
@@ -234,7 +235,7 @@ git push origin v1.0.0
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+We welcome contributions! Please see [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for details.
 
 ## License
 
