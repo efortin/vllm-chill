@@ -40,17 +40,24 @@ tasks:
       - "docker buildx build --platform linux/amd64,linux/arm64 -t {{.IMAGE}}:{{.TAG}} --push ."
       - 'echo "image pushed: {{.IMAGE}}:{{.TAG}}"'
 
-  # Task 6: Local run
+  # Task 6: Build
+  build:
+    desc: "Build binary"
+    cmds:
+      - go build -o bin/vllm-chill ./cmd/autoscaler
+      - echo "Build successful! Binary at bin/vllm-chill"
+
+  # Task 7: Local run
   run:
     desc: "Run locally (requires kubeconfig)"
     cmds:
       - go run ./cmd/autoscaler serve
 
-  # Task 7: Full check (lint + test + build)
+  # Task 8: Full check (lint + test + build)
   check:
     desc: "Run full checks (lint, test, build)"
     cmds:
       - task: lint
       - task: test
-      - go build -o bin/vllm-chill ./cmd/autoscaler
+      - task: build
       - echo "All checks passed!"

@@ -1,9 +1,9 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: vllmmodels.vllm.efortin.github.io
+  name: models.vllm.sir-alfred.io
 spec:
-  group: vllm.efortin.github.io
+  group: vllm.sir-alfred.io
   versions:
     - name: v1alpha1
       served: true
@@ -136,10 +136,10 @@ spec:
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp
-  scope: Namespaced
+  scope: Cluster
   names:
-    plural: vllmmodels
-    singular: vllmmodel
+    plural: models
+    singular: model
     kind: VLLMModel
     shortNames:
       - vm

@@ -72,7 +72,7 @@ func NewAutoScaler(config *Config) (*AutoScaler, error) {
 
 	as := &AutoScaler{
 		clientset:    clientset,
-		crdClient:    NewCRDClient(dynamicClient, config.Namespace),
+		crdClient:    NewCRDClient(dynamicClient),
 		k8sManager:   NewK8sManager(clientset, config),
 		config:       config,
 		targetURL:    targetURL,
@@ -82,22 +82,20 @@ func NewAutoScaler(config *Config) (*AutoScaler, error) {
 	as.scaleUpCond = sync.NewCond(&as.mu)
 	as.modelSwitchCond = sync.NewCond(&as.mu)
 
-	// If managed mode is enabled, ensure K8s resources exist
-	if config.EnableManaged {
-		ctx := context.Background()
-		// Get the first available model from CRD as initial model
-		models, err := as.crdClient.ListModels(ctx)
-		if err != nil || len(models) == 0 {
-			log.Printf("Warning: No VLLMModels found. Resources will be created when first model is requested.")
+	// Ensure K8s resources exist (managed mode is always enabled)
+	ctx := context.Background()
+	// Get the first available model from CRD as initial model
+	models, err := as.crdClient.ListModels(ctx)
+	if err != nil || len(models) == 0 {
+		log.Printf("Warning: No VLLMModels found. Resources will be created when first model is requested.")
+	} else {
+		// Use the first model as initial configuration
+		initialModel, err := as.crdClient.GetModel(ctx, models[0].Spec.ServedModelName)
+		if err != nil {
+			log.Printf("Warning: Failed to get initial model config: %v", err)
 		} else {
-			// Use the first model as initial configuration
-			initialModel, err := as.crdClient.GetModel(ctx, models[0].Spec.ServedModelName)
-			if err != nil {
-				log.Printf("Warning: Failed to get initial model config: %v", err)
-			} else {
-				if err := as.k8sManager.EnsureVLLMResources(ctx, initialModel); err != nil {
-					log.Printf("Warning: Failed to ensure vLLM resources: %v", err)
-				}
+			if err := as.k8sManager.EnsureVLLMResources(ctx, initialModel); err != nil {
+				log.Printf("Warning: Failed to ensure vLLM resources: %v", err)
 			}
 		}
 	}
@@ -295,8 +293,8 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	as.mu.RUnlock()
 
-	// If managed mode is enabled and this is a chat completion request, handle model management
-	if as.config.EnableManaged && r.URL.Path == "/v1/chat/completions" && r.Method == "POST" {
+	// Handle model management for chat completion requests (managed mode is always enabled)
+	if r.URL.Path == "/v1/chat/completions" && r.Method == "POST" {
 		// Extract the requested model from the request
 		requestedModel, err := extractModelFromRequest(r)
 		if err != nil {
@@ -398,11 +396,9 @@ func (as *AutoScaler) Start() error {
 	mux.HandleFunc("/health", as.healthHandler)
 	mux.HandleFunc("/readyz", as.healthHandler)
 
-	// Add metrics endpoint
-	if as.config.EnableMetrics {
-		mux.Handle("/metrics", promhttp.Handler())
-		log.Printf("   Metrics endpoint: http://0.0.0.0:%s/metrics", as.config.Port)
-	}
+	// Add metrics endpoint (always enabled)
+	mux.Handle("/metrics", promhttp.Handler())
+	log.Printf("   Metrics endpoint: http://0.0.0.0:%s/metrics", as.config.Port)
 
 	mux.HandleFunc("/", as.proxyHandler)
 

@@ -13,29 +13,27 @@ import (
 )
 
 var vllmModelGVR = schema.GroupVersionResource{
-	Group:    "vllm.efortin.github.io",
+	Group:    "vllm.sir-alfred.io",
 	Version:  "v1alpha1",
-	Resource: "vllmmodels",
+	Resource: "models",
 }
 
 // CRDClient handles VLLMModel CRD operations
 type CRDClient struct {
 	dynamicClient dynamic.Interface
-	namespace     string
 }
 
 // NewCRDClient creates a new CRD client
-func NewCRDClient(dynamicClient dynamic.Interface, namespace string) *CRDClient {
+func NewCRDClient(dynamicClient dynamic.Interface) *CRDClient {
 	return &CRDClient{
 		dynamicClient: dynamicClient,
-		namespace:     namespace,
 	}
 }
 
 // GetModel retrieves a VLLMModel by its served model name
 func (c *CRDClient) GetModel(ctx context.Context, servedModelName string) (*ModelConfig, error) {
-	// List all VLLMModels in the namespace
-	list, err := c.dynamicClient.Resource(vllmModelGVR).Namespace(c.namespace).List(ctx, metav1.ListOptions{})
+	// List all VLLMModels (cluster-scoped)
+	list, err := c.dynamicClient.Resource(vllmModelGVR).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list VLLMModels: %w", err)
 	}
@@ -123,9 +121,9 @@ func (c *CRDClient) convertToModelConfig(u *unstructured.Unstructured) (*ModelCo
 	return config, nil
 }
 
-// ListModels returns all VLLMModels in the namespace
+// ListModels returns all VLLMModels (cluster-scoped)
 func (c *CRDClient) ListModels(ctx context.Context) ([]*v1alpha1.VLLMModel, error) {
-	list, err := c.dynamicClient.Resource(vllmModelGVR).Namespace(c.namespace).List(ctx, metav1.ListOptions{})
+	list, err := c.dynamicClient.Resource(vllmModelGVR).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list VLLMModels: %w", err)
 	}

@@ -17,8 +17,6 @@ var (
 	idleTimeout    string
 	managedTimeout string
 	port           string
-	enableManaged  bool
-	enableMetrics  bool
 	logOutput      bool
 )
 
@@ -42,8 +40,6 @@ The proxy will:
 			IdleTimeout:    idleTimeout,
 			ManagedTimeout: managedTimeout,
 			Port:           port,
-			EnableManaged:  enableManaged,
-			EnableMetrics:  enableMetrics,
 			LogOutput:      logOutput,
 		}
 
@@ -55,15 +51,9 @@ The proxy will:
 		log.Printf("Starting vLLM AutoScaler on :%s", port)
 		log.Printf("   Target: http://%s:%s", targetHost, targetPort)
 		log.Printf("   Deployment: %s/%s", namespace, deployment)
+		log.Printf("   ConfigMap: %s/%s", namespace, configMapName)
 		log.Printf("   Idle timeout: %s", idleTimeout)
-		if enableManaged {
-			log.Printf("   Managed mode: enabled")
-			log.Printf("   ConfigMap: %s/%s", namespace, configMapName)
-			log.Printf("   Managed timeout: %s", managedTimeout)
-		}
-		if enableMetrics {
-			log.Printf("   Metrics: enabled at /metrics")
-		}
+		log.Printf("   Managed timeout: %s", managedTimeout)
 		if logOutput {
 			log.Printf("   Output logging: enabled")
 		}
@@ -83,8 +73,7 @@ func init() {
 	serveCmd.Flags().StringVar(&idleTimeout, "idle-timeout", getEnvOrDefault("IDLE_TIMEOUT", "5m"), "Idle timeout before scaling to 0")
 	serveCmd.Flags().StringVar(&managedTimeout, "managed-timeout", getEnvOrDefault("MANAGED_TIMEOUT", "5m"), "Timeout for managed operations")
 	serveCmd.Flags().StringVar(&port, "port", getEnvOrDefault("PORT", "8080"), "HTTP server port")
-	serveCmd.Flags().BoolVar(&enableManaged, "enable-managed", getEnvOrDefault("ENABLE_MANAGED", "false") == "true", "Enable managed mode (automatic deployment and service creation)")
-	serveCmd.Flags().BoolVar(&enableMetrics, "enable-metrics", getEnvOrDefault("ENABLE_METRICS", "true") == "true", "Enable Prometheus metrics endpoint")
+	// Managed mode and metrics are now always enabled
 	serveCmd.Flags().BoolVar(&logOutput, "log-output", getEnvOrDefault("LOG_OUTPUT", "false") == "true", "Log response bodies (use with caution, can be verbose)")
 }
 

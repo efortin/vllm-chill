@@ -1,8 +1,7 @@
-apiVersion: vllm.efortin.github.io/v1alpha1
+apiVersion: vllm.sir-alfred.io/v1alpha1
 kind: VLLMModel
 metadata:
   name: opencoder-30b-fp8
-  namespace: ai-apps
 spec:
   # Model Identification
   modelName: "opencoder/opencoder-30b-fp8"
