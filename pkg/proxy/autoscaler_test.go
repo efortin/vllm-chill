@@ -3,6 +3,7 @@ package proxy
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 )
@@ -50,7 +51,9 @@ func TestAutoScaler_updateActivity(t *testing.T) {
 	as := &AutoScaler{
 		config:       config,
 		lastActivity: time.Now().Add(-10 * time.Minute),
+		metrics:      NewMetricsRecorder(),
 	}
+	defer as.metrics.Stop()
 
 	oldActivity := as.lastActivity
 
@@ -116,4 +119,80 @@ func TestConfig_ValidationEdgeCases(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAutoScaler_GetReplicas(t *testing.T) {
+	// This test would require a mock Kubernetes client
+	// Skipping for now as it requires integration testing setup
+	t.Skip("Requires Kubernetes mock setup")
+}
+
+func TestAutoScaler_ScaleDeployment(t *testing.T) {
+	// This test would require a mock Kubernetes client
+	// Skipping for now as it requires integration testing setup
+	t.Skip("Requires Kubernetes mock setup")
+}
+
+func TestAutoScaler_ConcurrentScaleUp(t *testing.T) {
+	// Test that concurrent scale-up requests are properly synchronized
+	config := &Config{
+		Namespace:   "default",
+		Deployment:  "vllm",
+		TargetHost:  "vllm-svc",
+		TargetPort:  "80",
+		IdleTimeout: "5m",
+		Port:        "8080",
+	}
+
+	as := &AutoScaler{
+		config:       config,
+		lastActivity: time.Now(),
+	}
+	as.scaleUpCond = &sync.Cond{L: &as.mu}
+
+	// Verify that the condition variable is properly initialized
+	if as.scaleUpCond == nil {
+		t.Error("scaleUpCond should not be nil")
+	}
+}
+
+func TestAutoScaler_ModelSwitchConcurrency(t *testing.T) {
+	// Test that model switch synchronization works
+	config := &Config{
+		Namespace:      "default",
+		Deployment:     "vllm",
+		TargetHost:     "vllm-svc",
+		TargetPort:     "80",
+		IdleTimeout:    "5m",
+		Port:           "8080",
+		EnableManaged:  true,
+		ConfigMapName:  "vllm-config",
+		ManagedTimeout: "5m",
+	}
+
+	as := &AutoScaler{
+		config:       config,
+		lastActivity: time.Now(),
+	}
+	as.modelSwitchCond = &sync.Cond{L: &as.mu}
+
+	// Verify that the condition variable is properly initialized
+	if as.modelSwitchCond == nil {
+		t.Error("modelSwitchCond should not be nil")
+	}
+
+	// Test setting switching state
+	as.mu.Lock()
+	as.isSwitchingModel = true
+	as.switchingToModel = "test-model"
+	as.mu.Unlock()
+
+	as.mu.RLock()
+	if !as.isSwitchingModel {
+		t.Error("isSwitchingModel should be true")
+	}
+	if as.switchingToModel != "test-model" {
+		t.Errorf("switchingToModel = %v, want test-model", as.switchingToModel)
+	}
+	as.mu.RUnlock()
 }

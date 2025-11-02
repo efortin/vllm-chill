@@ -1,0 +1,146 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vllmmodels.vllm.efortin.github.io
+spec:
+  group: vllm.efortin.github.io
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - modelName
+                - servedModelName
+              properties:
+                # Model Identification
+                modelName:
+                  type: string
+                  description: "Hugging Face model identifier (e.g., Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8)"
+                servedModelName:
+                  type: string
+                  description: "Name used in API requests (e.g., qwen3-coder-30b-fp8)"
+                
+                # Parsing Configuration
+                toolCallParser:
+                  type: string
+                  description: "Tool call parser to use"
+                  default: ""
+                  enum:
+                    - ""
+                    - "hermes"
+                    - "mistral"
+                    - "llama3_json"
+                    - "internlm2"
+                    - "qwen3_coder"
+                    - "granite"
+                reasoningParser:
+                  type: string
+                  description: "Reasoning parser to use"
+                  default: ""
+                  enum:
+                    - ""
+                    - "deepseek_r1"
+                
+                # vLLM Runtime Parameters
+                tensorParallelSize:
+                  type: integer
+                  description: "Number of GPUs to use for tensor parallelism"
+                  default: 1
+                  minimum: 1
+                maxModelLen:
+                  type: integer
+                  description: "Maximum model context length"
+                  default: 32768
+                  minimum: 512
+                gpuMemoryUtilization:
+                  type: number
+                  description: "GPU memory utilization (0.0-1.0)"
+                  default: 0.90
+                  minimum: 0.1
+                  maximum: 1.0
+                enableChunkedPrefill:
+                  type: boolean
+                  description: "Enable chunked prefill"
+                  default: true
+                maxNumBatchedTokens:
+                  type: integer
+                  description: "Maximum number of batched tokens"
+                  default: 4096
+                  minimum: 1
+                maxNumSeqs:
+                  type: integer
+                  description: "Maximum number of sequences"
+                  default: 16
+                  minimum: 1
+                dtype:
+                  type: string
+                  description: "Data type for model weights and activations"
+                  default: "auto"
+                  enum:
+                    - "auto"
+                    - "half"
+                    - "float16"
+                    - "bfloat16"
+                    - "float"
+                    - "float32"
+                disableCustomAllReduce:
+                  type: boolean
+                  description: "Disable custom all-reduce"
+                  default: false
+                enablePrefixCaching:
+                  type: boolean
+                  description: "Enable prefix caching"
+                  default: true
+                cpuOffloadGB:
+                  type: integer
+                  description: "CPU offload in GB"
+                  default: 0
+                  minimum: 0
+                enableAutoToolChoice:
+                  type: boolean
+                  description: "Enable auto tool choice"
+                  default: true
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  description: "Current phase of the model (Pending, Ready, Failed)"
+                  enum:
+                    - "Pending"
+                    - "Ready"
+                    - "Failed"
+                lastUpdated:
+                  type: string
+                  format: date-time
+                  description: "Last time the model was updated"
+                message:
+                  type: string
+                  description: "Human-readable message about the model status"
+      additionalPrinterColumns:
+        - name: Model
+          type: string
+          jsonPath: .spec.modelName
+        - name: Served As
+          type: string
+          jsonPath: .spec.servedModelName
+        - name: Status
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+  scope: Namespaced
+  names:
+    plural: vllmmodels
+    singular: vllmmodel
+    kind: VLLMModel
+    shortNames:
+      - vm
+      - vllm

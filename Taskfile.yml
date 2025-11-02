@@ -21,15 +21,36 @@ tasks:
       - go test -v -race -coverprofile=coverage.out ./...
       - go tool cover -func=coverage.out
 
-  # Task 3: Build & Push Docker image
+  # Task 3: Lint
+  lint:
+    desc: "Run golangci-lint"
+    cmds:
+      - golangci-lint run ./...
+
+  # Task 4: Lint with auto-fix
+  "lint:fix":
+    desc: "Run golangci-lint with auto-fix"
+    cmds:
+      - golangci-lint run --fix ./...
+
+  # Task 5: Build & Push Docker image
   docker:
     desc: "Build and push multi-arch Docker image"
     cmds:
-      - docker buildx build --platform linux/amd64,linux/arm64 -t {{.IMAGE}}:{{.TAG}} --push .
-      - echo "image pushed: {{.IMAGE}}:{{.TAG}}"
+      - "docker buildx build --platform linux/amd64,linux/arm64 -t {{.IMAGE}}:{{.TAG}} --push ."
+      - 'echo "image pushed: {{.IMAGE}}:{{.TAG}}"'
 
-  # Task 4: Local run
+  # Task 6: Local run
   run:
     desc: "Run locally (requires kubeconfig)"
     cmds:
       - go run ./cmd/autoscaler serve
+
+  # Task 7: Full check (lint + test + build)
+  check:
+    desc: "Run full checks (lint, test, build)"
+    cmds:
+      - task: lint
+      - task: test
+      - go build -o bin/vllm-chill ./cmd/autoscaler
+      - echo "All checks passed!"

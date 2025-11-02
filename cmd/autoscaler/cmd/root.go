@@ -1,3 +1,4 @@
+// Package cmd provides the command-line interface for vllm-chill.
 package cmd
 
 import (
@@ -14,6 +15,7 @@ It buffers connections during scale-up and tracks activity to scale down
 after a configurable idle timeout.`,
 }
 
+// Execute runs the root command.
 func Execute() error {
 	return rootCmd.Execute()
 }
