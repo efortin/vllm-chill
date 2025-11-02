@@ -25,15 +25,13 @@ builds:
       - -X main.date={{.Date}}
 
 archives:
-  - format: tar.gz
+  - id: default
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_
       {{- .Os }}_
       {{- .Arch }}
-    format_overrides:
-      - goos: windows
-        format: zip
+    rlcp: true
     files:
       - README.md
       - LICENSE
@@ -54,44 +52,17 @@ changelog:
       - Merge pull request
       - Merge branch
 
-dockers:
-  # AMD64 image - uses pre-compiled binary from GoReleaser
+dockers_v2:
+  # Multi-arch Docker images using buildx
   - image_templates:
-      - "{{ .Env.DOCKER_REGISTRY }}/{{ .Env.DOCKER_IMAGE }}:{{ .Version }}-amd64"
-      - "{{ .Env.DOCKER_REGISTRY }}/{{ .Env.DOCKER_IMAGE }}:latest-amd64"
-    use: buildx
-    goos: linux
-    goarch: amd64
+      - "{{ .Env.DOCKER_REGISTRY }}/{{ .Env.DOCKER_IMAGE }}:{{ .Version }}"
+      - "{{ .Env.DOCKER_REGISTRY }}/{{ .Env.DOCKER_IMAGE }}:latest"
     dockerfile: Dockerfile.goreleaser
+    use: buildx
     build_flag_templates:
-      - "--platform=linux/amd64"
+      - "--platform=linux/amd64,linux/arm64"
       - "--label=org.opencontainers.image.created={{.Date}}"
       - "--label=org.opencontainers.image.title={{.ProjectName}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-
-  # ARM64 image - uses pre-compiled binary from GoReleaser
-  - image_templates:
-      - "{{ .Env.DOCKER_REGISTRY }}/{{ .Env.DOCKER_IMAGE }}:{{ .Version }}-arm64"
-      - "{{ .Env.DOCKER_REGISTRY }}/{{ .Env.DOCKER_IMAGE }}:latest-arm64"
-    use: buildx
-    goos: linux
-    goarch: arm64
-    dockerfile: Dockerfile.goreleaser
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-
-docker_manifests:
-  - name_template: "{{ .Env.DOCKER_REGISTRY }}/{{ .Env.DOCKER_IMAGE }}:{{ .Version }}"
-    image_templates:
-      - "{{ .Env.DOCKER_REGISTRY }}/{{ .Env.DOCKER_IMAGE }}:{{ .Version }}-amd64"
-      - "{{ .Env.DOCKER_REGISTRY }}/{{ .Env.DOCKER_IMAGE }}:{{ .Version }}-arm64"
-
-  - name_template: "{{ .Env.DOCKER_REGISTRY }}/{{ .Env.DOCKER_IMAGE }}:latest"
-    image_templates:
-      - "{{ .Env.DOCKER_REGISTRY }}/{{ .Env.DOCKER_IMAGE }}:latest-amd64"
-      - "{{ .Env.DOCKER_REGISTRY }}/{{ .Env.DOCKER_IMAGE }}:latest-arm64"
+      - "--label=org.opencontainers.image.source={{.GitURL}}"

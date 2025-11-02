@@ -44,7 +44,7 @@ jobs:
       run: go mod verify
 
     - name: Run tests
-      run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+      run: go test -v -race -coverprofile=coverage.out -covermode=atomic -json ./... | tee test-output.json | go run github.com/gotesttools/gotestfmt/v2/cmd/gotestfmt@latest
 
     - name: Generate coverage report
       run: go tool cover -html=coverage.out -o coverage.html
