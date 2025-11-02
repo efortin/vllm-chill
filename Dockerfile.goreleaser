@@ -1,0 +1,12 @@
+FROM scratch
+
+# Copy CA certificates for HTTPS
+COPY --from=alpine:latest /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+# Copy pre-compiled binary from GoReleaser
+COPY vllm-chill /vllm-chill
+
+EXPOSE 8080
+
+ENTRYPOINT ["/vllm-chill"]
+CMD ["serve"]

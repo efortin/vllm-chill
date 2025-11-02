@@ -1,0 +1,68 @@
+name: Docker
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  docker:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+
+    - name: Build binaries
+      run: |
+        # AMD64
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o vllm-chill-amd64 ./cmd/autoscaler
+        # ARM64
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-w -s" -o vllm-chill-arm64 ./cmd/autoscaler
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ secrets.DOCKER_USERNAME }}/vllm-chill
+        tags: |
+          type=ref,event=branch
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Create Dockerfile for pre-built binaries
+      run: |
+        cat > Dockerfile.ci << 'EOF'
+        FROM scratch
+        COPY --from=alpine:latest /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+        ARG TARGETARCH
+        COPY vllm-chill-${TARGETARCH} /vllm-chill
+        EXPOSE 8080
+        ENTRYPOINT ["/vllm-chill"]
+        CMD ["serve"]
+        EOF
+
+    - name: Build and push multi-arch
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile.ci
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
