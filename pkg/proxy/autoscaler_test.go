@@ -133,7 +133,7 @@ func TestAutoScaler_ScaleDeployment(t *testing.T) {
 	t.Skip("Requires Kubernetes mock setup")
 }
 
-func TestAutoScaler_ConcurrentScaleUp(t *testing.T) {
+func TestAutoScaler_ConcurrentScaleUp(_ *testing.T) {
 	// Test that concurrent scale-up requests are properly synchronized
 	config := &Config{
 		Namespace:   "default",
@@ -150,9 +150,6 @@ func TestAutoScaler_ConcurrentScaleUp(t *testing.T) {
 	}
 	as.scaleUpCond = &sync.Cond{L: &as.mu}
 
-	// Verify that the condition variable is properly initialized
-	if as.scaleUpCond == nil {
-	}
 }
 
 func TestAutoScaler_ModelSwitchConcurrency(t *testing.T) {
