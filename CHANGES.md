@@ -1,12 +1,101 @@
-# Changes Summary
+# Changelog
 
-## Overview
+## [Unreleased] - 2025-01-XX
 
-This update addresses the following requirements:
-1. ✅ K8s deployment and service management by vllm-chill when model-switch is enabled
-2. ✅ Documentation moved to docs/ folder
-3. ✅ Command scope and module organization verified
-4. ✅ Comprehensive test coverage added
+### Changed - BREAKING CHANGES
+
+#### Renaming: "Model Switch" → "Managed Mode"
+
+All references to "model switch" have been renamed to "managed" to better reflect that the system manages the entire deployment lifecycle.
+
+**Flag Changes:**
+- `--enable-model-switch` → `--enable-managed`
+- `--model-switch-timeout` → `--managed-timeout`
+- `ENABLE_MODEL_SWITCH` → `ENABLE_MANAGED`
+- `MODEL_SWITCH_TIMEOUT` → `MANAGED_TIMEOUT`
+
+**Migration:**
+```bash
+# Old
+./bin/vllm-chill serve --enable-model-switch --model-switch-timeout=5m
+
+# New
+./bin/vllm-chill serve --enable-managed --managed-timeout=5m
+```
+
+**Metrics Changes:**
+- `vllm_chill_model_switches_total` → `vllm_chill_managed_operations_total`
+- `vllm_chill_model_switch_duration_seconds` → `vllm_chill_managed_operation_duration_seconds`
+
+### Added
+
+#### Full Production-Ready vLLM Deployment
+
+When `--enable-managed` is enabled, vLLM-Chill creates a complete vLLM deployment with:
+
+**Volumes:**
+- HF cache: `/home/manu/.cache/huggingface` (hostPath)
+- vLLM compile cache: `/home/manu/.cache/vllm-compile` (hostPath)
+- Shared memory: 16Gi for FlashAttention (emptyDir)
+
+**Health Probes:**
+- Startup: 130s max (10s + 24×5s)
+- Readiness: 125s max (5s + 12×10s)
+- Liveness: 150s max (60s + 3×30s)
+
+**Resources:**
+- Memory: 16Gi requests, 32Gi limits
+- GPU: 2× nvidia.com/gpu
+
+**Optimizations:**
+- `TORCH_CUDA_ARCH_LIST=8.6`: RTX 3090 architecture
+- Persistent torch compile cache
+- HF transfer acceleration
+- OpenMP threading (16 threads)
+
+**Service:**
+- HTTP port: 80 → 8000
+- Metrics port: 8001 → 8001
+
+#### Prometheus Metrics
+
+Comprehensive metrics at `/metrics`:
+
+- **Requests**: count, latency, payload size
+- **Managed ops**: model switch count and duration
+- **Scaling**: scale up/down operations
+- **State**: replicas, idle time, current model
+
+See `docs/METRICS.md` for complete documentation.
+
+#### Response Logging
+
+```bash
+./bin/vllm-chill serve --log-output
+```
+
+Logs full response bodies for debugging (use with caution).
+
+#### Linting Support
+
+Added golangci-lint configuration and tasks:
+
+```bash
+task lint          # Run linter
+task lint:fix      # Run linter with auto-fix
+task check         # Full check (lint + test + build)
+```
+
+### Documentation
+
+- `docs/METRICS.md`: Prometheus metrics guide
+- `docs/PERFORMANCE.md`: HTTP proxy performance analysis
+- `docs/ARCHITECTURE.md`: Architecture documentation
+- Updated README with all new features
+
+## Previous Updates
+
+### K8s Resource Management (Pre-rename)
 
 ## New Features
 
