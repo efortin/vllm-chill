@@ -181,7 +181,10 @@ func (as *AutoScaler) ensureResourcesExist(ctx context.Context) error {
 
 	// Try to get the first available model from CRD
 	models, err := as.crdClient.ListModels(ctx)
-	if err != nil || len(models) == 0 {
+	if err != nil {
+		return fmt.Errorf("failed to list VLLMModels from CRD: %w", err)
+	}
+	if len(models) == 0 {
 		return fmt.Errorf("no VLLMModels found in CRD, cannot create resources")
 	}
 
