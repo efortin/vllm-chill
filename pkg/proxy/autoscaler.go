@@ -82,8 +82,13 @@ func NewAutoScaler(config *Config) (*AutoScaler, error) {
 	as.scaleUpCond = sync.NewCond(&as.mu)
 	as.modelSwitchCond = sync.NewCond(&as.mu)
 
-	// Ensure K8s resources exist (managed mode is always enabled)
+	// Verify prerequisites at startup
 	ctx := context.Background()
+	if err := as.verifyPrerequisites(ctx); err != nil {
+		return nil, fmt.Errorf("prerequisite check failed: %w", err)
+	}
+
+	// Ensure K8s resources exist (managed mode is always enabled)
 	// Get the first available model from CRD as initial model
 	models, err := as.crdClient.ListModels(ctx)
 	if err != nil || len(models) == 0 {
@@ -101,6 +106,46 @@ func NewAutoScaler(config *Config) (*AutoScaler, error) {
 	}
 
 	return as, nil
+}
+
+// verifyPrerequisites checks that all required permissions and CRDs are available
+func (as *AutoScaler) verifyPrerequisites(ctx context.Context) error {
+	log.Printf("Verifying prerequisites...")
+
+	// Check if VLLMModel CRD exists
+	log.Printf("Checking if VLLMModel CRD is installed...")
+	_, err := as.crdClient.dynamicClient.Resource(vllmModelGVR).Namespace(as.config.Namespace).List(ctx, metav1.ListOptions{Limit: 1})
+	if err != nil {
+		return fmt.Errorf("VLLMModel CRD not found or not accessible. Please install it with: kubectl apply -f manifests/crds/vllmmodel.yaml. Error: %w", err)
+	}
+	log.Printf("✓ VLLMModel CRD is installed")
+
+	// Check deployment permissions (get, list, create, update)
+	log.Printf("Checking deployment permissions...")
+	_, err = as.clientset.AppsV1().Deployments(as.config.Namespace).List(ctx, metav1.ListOptions{Limit: 1})
+	if err != nil {
+		return fmt.Errorf("cannot list deployments in namespace %s. Check RBAC permissions. Error: %w", as.config.Namespace, err)
+	}
+	log.Printf("✓ Deployment list permission verified")
+
+	// Check service permissions
+	log.Printf("Checking service permissions...")
+	_, err = as.clientset.CoreV1().Services(as.config.Namespace).List(ctx, metav1.ListOptions{Limit: 1})
+	if err != nil {
+		return fmt.Errorf("cannot list services in namespace %s. Check RBAC permissions. Error: %w", as.config.Namespace, err)
+	}
+	log.Printf("✓ Service list permission verified")
+
+	// Check configmap permissions
+	log.Printf("Checking configmap permissions...")
+	_, err = as.clientset.CoreV1().ConfigMaps(as.config.Namespace).List(ctx, metav1.ListOptions{Limit: 1})
+	if err != nil {
+		return fmt.Errorf("cannot list configmaps in namespace %s. Check RBAC permissions. Error: %w", as.config.Namespace, err)
+	}
+	log.Printf("✓ ConfigMap list permission verified")
+
+	log.Printf("✓ All prerequisites verified successfully")
+	return nil
 }
 
 // getReplicas returns the current number of replicas for the deployment
@@ -141,6 +186,10 @@ func (as *AutoScaler) scaleDeployment(ctx context.Context, replicas int32) error
 				as.metrics.RecordScaleOp(direction, false, time.Since(start))
 				return fmt.Errorf("deployment not found and failed to create: %w", createErr)
 			}
+			// Wait briefly for Kubernetes to process the resource creation (eventually consistent)
+			log.Printf("Waiting for deployment to be registered in Kubernetes...")
+			time.Sleep(2 * time.Second)
+
 			// Try to get deployment again after creation
 			dep, err = as.clientset.AppsV1().Deployments(as.config.Namespace).Get(
 				ctx,
