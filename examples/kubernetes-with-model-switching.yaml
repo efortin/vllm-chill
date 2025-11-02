@@ -216,8 +216,8 @@ rules:
 - apiGroups: [""]
   resources: ["services"]
   verbs: ["get", "create", "update", "patch"]
-- apiGroups: ["vllm.efortin.github.io"]
-  resources: ["vllmmodels"]
+- apiGroups: ["vllm.sir-alfred.io"]
+  resources: ["models"]
   verbs: ["get", "list"]
 
 ---

@@ -9,7 +9,7 @@ import (
 
 const (
 	// GroupName is the API group name for vLLM resources.
-	GroupName = "vllm.efortin.github.io"
+	GroupName = "vllm.sir-alfred.io"
 	// Version is the API version.
 	Version = "v1alpha1"
 )

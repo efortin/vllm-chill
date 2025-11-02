@@ -20,11 +20,10 @@ curl -X POST http://proxy/v1/chat/completions \
 ## Define a Model
 
 ```yaml
-apiVersion: vllm.efortin.github.io/v1alpha1
+apiVersion: vllm.sir-alfred.io/v1alpha1
 kind: VLLMModel
 metadata:
   name: my-model
-  namespace: ai-apps
 spec:
   modelName: "org/model-name"
   servedModelName: "my-model"
