@@ -291,6 +291,7 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	as.mu.RUnlock()
 
 	// Handle model management for chat completion requests (managed mode is always enabled)
 	if r.URL.Path == "/v1/chat/completions" && r.Method == "POST" {
