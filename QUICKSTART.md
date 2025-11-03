@@ -37,9 +37,16 @@ kubectl create namespace vllm
 kubectl create secret generic hf-token-secret -n vllm \
   --from-literal=token=YOUR_HF_TOKEN
 
-# Deploy vllm-chill with RBAC
-kubectl apply -f examples/kubernetes-with-model-switching.yaml
+# Option A: Use pre-built image from GHCR (after CI/CD runs)
+kubectl apply -f manifests/kubernetes-with-model-switching.yaml
+
+# Option B: Build and deploy locally
+./scripts/local-deploy.sh
 ```
+
+**Note:** The Docker image must be available. Either:
+- Push to `main` branch to trigger GitHub Actions build
+- Or build locally with `docker build -t ghcr.io/efortin/vllm-chill:latest .`
 
 ### 4. Configure Ingress (Optional)
 
@@ -183,6 +190,6 @@ kubectl logs -n vllm deployment/vllm-chill
 
 ## Next Steps
 
-- See [docs/CRD_GUIDE.md](docs/CRD_GUIDE.md) for VLLMModel CRD reference
 - See [docs/METRICS.md](docs/METRICS.md) for Prometheus metrics
 - See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design details
+- Check [manifests/examples/](manifests/examples/) for more VLLMModel examples

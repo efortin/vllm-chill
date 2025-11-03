@@ -97,6 +97,83 @@ roleRef:
   kind: ClusterRole
   name: vllm-chill-models
   apiGroup: rbac.authorization.k8s.io
+
+---
+# vllm-chill Deployment (AutoScaler Proxy with Model Switching)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-chill
+  namespace: vllm
+  labels:
+    app: vllm-chill
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-chill
+  template:
+    metadata:
+      labels:
+        app: vllm-chill
+    spec:
+      serviceAccountName: vllm-chill
+      containers:
+      - name: vllm-chill
+        image: efortin/vllm-chill:latest
+        imagePullPolicy: Always  # Always pull latest image
+        args:
+          - serve
+          - --namespace=vllm
+          - --deployment=vllm
+          - --configmap=vllm-config
+          - --target-host=vllm-svc
+          - --target-port=80
+          - --idle-timeout=20m
+          - --managed-timeout=5m
+          - --port=8080
+        ports:
+        - containerPort: 8080
+          name: http
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 3
+          periodSeconds: 5
+
+---
+# vllm-chill Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-chill-svc
+  namespace: vllm
+  labels:
+    app: vllm-chill
+spec:
+  selector:
+    app: vllm-chill
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  type: ClusterIP
+
 ---
 # Ingress (optional - adjust based on your ingress controller)
 apiVersion: networking.k8s.io/v1
