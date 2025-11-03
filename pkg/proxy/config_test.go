@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"testing"
+	"time"
 )
 
 func TestConfig_Validate(t *testing.T) {
@@ -11,16 +12,16 @@ func TestConfig_Validate(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "valid config",
+			name: "all fields set correctly",
 			config: &Config{
-				Namespace:      "default",
-				Deployment:     "vllm",
+				Namespace:      "ai-apps",
+				Deployment:     "vllm-deployment",
 				ConfigMapName:  "vllm-config",
-				TargetHost:     "vllm-svc",
-				TargetPort:     "80",
-				IdleTimeout:    "5m",
+				TargetHost:     "vllm-service.ai-apps.svc.cluster.local",
+				TargetPort:     "8000",
+				IdleTimeout:    "10m",
 				ManagedTimeout: "5m",
-				Port:           "8080",
+				Port:           "9090",
 				ModelID:        "test-model",
 			},
 			wantErr: false,
@@ -29,69 +30,103 @@ func TestConfig_Validate(t *testing.T) {
 			name: "empty namespace",
 			config: &Config{
 				Namespace:      "",
-				Deployment:     "vllm",
+				Deployment:     "vllm-deployment",
 				ConfigMapName:  "vllm-config",
-				TargetHost:     "vllm-svc",
-				TargetPort:     "80",
-				IdleTimeout:    "5m",
+				TargetHost:     "vllm-service.ai-apps.svc.cluster.local",
+				TargetPort:     "8000",
+				IdleTimeout:    "10m",
 				ManagedTimeout: "5m",
-				Port:           "8080",
+				Port:           "9090",
+				ModelID:        "test-model",
 			},
 			wantErr: true,
 		},
 		{
 			name: "empty deployment",
 			config: &Config{
-				Namespace:      "default",
+				Namespace:      "ai-apps",
 				Deployment:     "",
 				ConfigMapName:  "vllm-config",
-				TargetHost:     "vllm-svc",
-				TargetPort:     "80",
-				IdleTimeout:    "5m",
+				TargetHost:     "vllm-service.ai-apps.svc.cluster.local",
+				TargetPort:     "8000",
+				IdleTimeout:    "10m",
 				ManagedTimeout: "5m",
-				Port:           "8080",
+				Port:           "9090",
+				ModelID:        "test-model",
+			},
+			wantErr: true,
+		},
+		{
+			name: "empty configmap name",
+			config: &Config{
+				Namespace:      "ai-apps",
+				Deployment:     "vllm-deployment",
+				ConfigMapName:  "",
+				TargetHost:     "vllm-service.ai-apps.svc.cluster.local",
+				TargetPort:     "8000",
+				IdleTimeout:    "10m",
+				ManagedTimeout: "5m",
+				Port:           "9090",
+				ModelID:        "test-model",
 			},
 			wantErr: true,
 		},
 		{
 			name: "empty target host",
 			config: &Config{
-				Namespace:      "default",
-				Deployment:     "vllm",
+				Namespace:      "ai-apps",
+				Deployment:     "vllm-deployment",
 				ConfigMapName:  "vllm-config",
 				TargetHost:     "",
-				TargetPort:     "80",
-				IdleTimeout:    "5m",
+				TargetPort:     "8000",
+				IdleTimeout:    "10m",
 				ManagedTimeout: "5m",
-				Port:           "8080",
+				Port:           "9090",
+				ModelID:        "test-model",
 			},
 			wantErr: true,
 		},
 		{
 			name: "empty target port",
 			config: &Config{
-				Namespace:      "default",
-				Deployment:     "vllm",
+				Namespace:      "ai-apps",
+				Deployment:     "vllm-deployment",
 				ConfigMapName:  "vllm-config",
-				TargetHost:     "vllm-svc",
+				TargetHost:     "vllm-service.ai-apps.svc.cluster.local",
 				TargetPort:     "",
-				IdleTimeout:    "5m",
+				IdleTimeout:    "10m",
 				ManagedTimeout: "5m",
-				Port:           "8080",
+				Port:           "9090",
+				ModelID:        "test-model",
 			},
 			wantErr: true,
 		},
 		{
 			name: "invalid idle timeout",
 			config: &Config{
-				Namespace:      "default",
-				Deployment:     "vllm",
+				Namespace:      "ai-apps",
+				Deployment:     "vllm-deployment",
 				ConfigMapName:  "vllm-config",
-				TargetHost:     "vllm-svc",
-				TargetPort:     "80",
+				TargetHost:     "vllm-service.ai-apps.svc.cluster.local",
+				TargetPort:     "8000",
 				IdleTimeout:    "invalid",
 				ManagedTimeout: "5m",
-				Port:           "8080",
+				Port:           "9090",
+				ModelID:        "test-model",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid managed timeout",
+			config: &Config{
+				Namespace:      "ai-apps",
+				Deployment:     "vllm-deployment",
+				ConfigMapName:  "vllm-config",
+				TargetHost:     "vllm-service.ai-apps.svc.cluster.local",
+				TargetPort:     "8000",
+				IdleTimeout:    "10m",
+				ManagedTimeout: "invalid",
+				Port:           "9090",
 				ModelID:        "test-model",
 			},
 			wantErr: true,
@@ -99,14 +134,14 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "empty model ID",
 			config: &Config{
-				Namespace:      "default",
-				Deployment:     "vllm",
+				Namespace:      "ai-apps",
+				Deployment:     "vllm-deployment",
 				ConfigMapName:  "vllm-config",
-				TargetHost:     "vllm-svc",
-				TargetPort:     "80",
-				IdleTimeout:    "5m",
+				TargetHost:     "vllm-service.ai-apps.svc.cluster.local",
+				TargetPort:     "8000",
+				IdleTimeout:    "10m",
 				ManagedTimeout: "5m",
-				Port:           "8080",
+				Port:           "9090",
 				ModelID:        "",
 			},
 			wantErr: true,
@@ -127,36 +162,36 @@ func TestConfig_GetIdleTimeout(t *testing.T) {
 	tests := []struct {
 		name     string
 		config   *Config
-		wantSecs int64
+		expected time.Duration
 	}{
 		{
-			name: "5 minutes",
+			name: "valid timeout",
 			config: &Config{
 				IdleTimeout: "5m",
 			},
-			wantSecs: 300,
+			expected: 5 * time.Minute,
 		},
 		{
-			name: "1 hour",
+			name: "zero timeout",
 			config: &Config{
-				IdleTimeout: "1h",
+				IdleTimeout: "0s",
 			},
-			wantSecs: 3600,
+			expected: 0,
 		},
 		{
-			name: "30 seconds",
+			name: "custom timeout",
 			config: &Config{
-				IdleTimeout: "30s",
+				IdleTimeout: "1h30m",
 			},
-			wantSecs: 30,
+			expected: time.Hour + 30*time.Minute,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.config.GetIdleTimeout()
-			if got.Seconds() != float64(tt.wantSecs) {
-				t.Errorf("Config.GetIdleTimeout() = %v seconds, want %v seconds", got.Seconds(), tt.wantSecs)
+			result := tt.config.GetIdleTimeout()
+			if result != tt.expected {
+				t.Errorf("Config.GetIdleTimeout() = %v, want %v", result, tt.expected)
 			}
 		})
 	}
@@ -164,32 +199,72 @@ func TestConfig_GetIdleTimeout(t *testing.T) {
 
 func TestConfig_GetTargetURL(t *testing.T) {
 	tests := []struct {
-		name   string
-		config *Config
-		want   string
+		name     string
+		config   *Config
+		expected string
 	}{
 		{
-			name: "default config",
-			config: &Config{
-				TargetHost: "vllm-svc",
-				TargetPort: "80",
-			},
-			want: "http://vllm-svc:80",
-		},
-		{
-			name: "custom port",
+			name: "standard case",
 			config: &Config{
 				TargetHost: "localhost",
-				TargetPort: "8000",
+				TargetPort: "8080",
 			},
-			want: "http://localhost:8000",
+			expected: "http://localhost:8080",
+		},
+		{
+			name: "different host and port",
+			config: &Config{
+				TargetHost: "api.example.com",
+				TargetPort: "443",
+			},
+			expected: "http://api.example.com:443",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.config.GetTargetURL(); got != tt.want {
-				t.Errorf("Config.GetTargetURL() = %v, want %v", got, tt.want)
+			result := tt.config.GetTargetURL()
+			if result != tt.expected {
+				t.Errorf("Config.GetTargetURL() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestConfig_GetManagedTimeout(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   *Config
+		expected time.Duration
+	}{
+		{
+			name: "valid timeout",
+			config: &Config{
+				ManagedTimeout: "5m",
+			},
+			expected: 5 * time.Minute,
+		},
+		{
+			name: "zero timeout",
+			config: &Config{
+				ManagedTimeout: "0s",
+			},
+			expected: 5 * time.Minute, // Should default to 5 minutes
+		},
+		{
+			name: "invalid timeout",
+			config: &Config{
+				ManagedTimeout: "invalid",
+			},
+			expected: 5 * time.Minute, // Should default to 5 minutes
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.GetManagedTimeout()
+			if result != tt.expected {
+				t.Errorf("Config.GetManagedTimeout() = %v, want %v", result, tt.expected)
 			}
 		})
 	}

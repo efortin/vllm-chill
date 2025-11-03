@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"io"
+	"log"
 	"net"
 	"net/http"
+	"strings"
 )
 
 // responseWriter wraps http.ResponseWriter to capture status code and response size
@@ -27,6 +29,7 @@ func newResponseWriter(w http.ResponseWriter, captureBody bool) *responseWriter 
 	if captureBody {
 		rw.body = &bytes.Buffer{}
 	}
+
 	return rw
 }
 
@@ -36,16 +39,40 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
-// Write captures the response size
+// Write captures the response size and converts XML tool calls
 func (rw *responseWriter) Write(b []byte) (int, error) {
-	n, err := rw.ResponseWriter.Write(b)
+	// Pass through data immediately - don't block streaming
+	// Only try to convert if we have complete XML tool calls
+	content := string(b)
+	converted := b // Default: pass through unchanged
+
+	if hasXMLToolCalls(content) && strings.Contains(content, "</tool_call>") {
+		log.Printf("[XML-PARSER] Detected complete XML tool calls in response (length: %d bytes)", len(b))
+		log.Printf("[XML-PARSER] Content preview: %s", content[:minInt(len(content), 200)])
+
+		// Only convert if we have complete XML
+		converted = convertXMLToolCallsInResponse(b)
+
+		if len(converted) != len(b) {
+			log.Printf("[XML-PARSER] Converted XML to JSON (original: %d bytes, converted: %d bytes)", len(b), len(converted))
+		}
+	}
+
+	n, err := rw.ResponseWriter.Write(converted)
 	rw.bytesWritten += int64(n)
 
 	if rw.captureBody {
-		rw.body.Write(b)
+		rw.body.Write(converted)
 	}
 
-	return n, err
+	return len(b), err // Return original length for consistency
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // Hijack implements http.Hijacker

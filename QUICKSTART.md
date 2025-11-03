@@ -99,8 +99,11 @@ kubectl logs -n vllm -f deployment/vllm-chill
 # Check vLLM deployment
 kubectl get deployment -n vllm vllm
 
-# View metrics
+# View proxy metrics
 kubectl port-forward -n vllm svc/vllm-chill-svc 8080:80
+curl http://localhost:8080/proxy/metrics
+
+# View vLLM metrics (when vLLM is running)
 curl http://localhost:8080/metrics
 ```
 
