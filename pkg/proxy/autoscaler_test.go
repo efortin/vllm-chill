@@ -84,6 +84,7 @@ func TestConfig_ValidationEdgeCases(t *testing.T) {
 				IdleTimeout:    "10m",
 				ManagedTimeout: "5m",
 				Port:           "9090",
+				ModelID:        "test-model",
 			},
 			wantErr: false,
 		},
@@ -98,6 +99,7 @@ func TestConfig_ValidationEdgeCases(t *testing.T) {
 				IdleTimeout:    "1s",
 				ManagedTimeout: "1s",
 				Port:           "8080",
+				ModelID:        "test-model",
 			},
 			wantErr: false,
 		},
@@ -112,6 +114,7 @@ func TestConfig_ValidationEdgeCases(t *testing.T) {
 				IdleTimeout:    "1h30m",
 				ManagedTimeout: "10m",
 				Port:           "8080",
+				ModelID:        "test-model",
 			},
 			wantErr: false,
 		},
@@ -160,44 +163,4 @@ func TestAutoScaler_ConcurrentScaleUp(t *testing.T) {
 	if as.scaleUpCond == nil {
 		t.Error("scaleUpCond should not be nil")
 	}
-}
-
-func TestAutoScaler_ModelSwitchConcurrency(t *testing.T) {
-	// Test that model switch synchronization works
-	config := &Config{
-		Namespace:      "default",
-		Deployment:     "vllm",
-		TargetHost:     "vllm-svc",
-		TargetPort:     "80",
-		IdleTimeout:    "5m",
-		Port:           "8080",
-		ConfigMapName:  "vllm-config",
-		ManagedTimeout: "5m",
-	}
-
-	as := &AutoScaler{
-		config:       config,
-		lastActivity: time.Now(),
-	}
-	as.modelSwitchCond = &sync.Cond{L: &as.mu}
-
-	// Verify that the condition variable is properly initialized
-	if as.modelSwitchCond == nil {
-		t.Error("modelSwitchCond should not be nil")
-	}
-
-	// Test setting switching state
-	as.mu.Lock()
-	as.isSwitchingModel = true
-	as.switchingToModel = "test-model"
-	as.mu.Unlock()
-
-	as.mu.RLock()
-	if !as.isSwitchingModel {
-		t.Error("isSwitchingModel should be true")
-	}
-	if as.switchingToModel != "test-model" {
-		t.Errorf("switchingToModel = %v, want test-model", as.switchingToModel)
-	}
-	as.mu.RUnlock()
 }

@@ -16,6 +16,7 @@ type Config struct {
 	ManagedTimeout string
 	Port           string
 	LogOutput      bool
+	ModelID        string // Static model ID to load from CRD
 }
 
 // Validate checks if the configuration is valid
@@ -40,6 +41,9 @@ func (c *Config) Validate() error {
 	}
 	if _, err := time.ParseDuration(c.ManagedTimeout); err != nil {
 		return fmt.Errorf("invalid managed timeout: %w", err)
+	}
+	if c.ModelID == "" {
+		return fmt.Errorf("model ID cannot be empty")
 	}
 	return nil
 }

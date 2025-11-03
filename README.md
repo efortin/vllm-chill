@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Lightweight Go proxy that automatically scales vLLM deployments to zero when idle and manages dynamic model switching via Kubernetes CRDs.
+Lightweight Go proxy that automatically scales vLLM deployments to zero when idle. Configure models via Kubernetes CRDs and select which model to run via environment variable.
 
 ## Motivation
 
@@ -26,7 +26,8 @@ For home labs and small clusters with limited GPUs, this is costly when vLLM sit
 
 - **Scale to Zero**: Automatically scales to 0 replicas after configurable idle timeout
 - **Automatic Wake**: Scales to 1 replica on first request, buffers connections during startup
-- **CRD-Based Model Switching**: Define models as cluster-scoped Kubernetes resources
+- **CRD-Based Model Configuration**: Define models as cluster-scoped Kubernetes resources
+- **Static Model Selection**: Configure which model to run via `MODEL_ID` environment variable
 - **Automatic Resource Management**: Creates and manages vLLM Deployment, Service, and ConfigMap
 - **Prometheus Metrics**: Always enabled at `/metrics` endpoint
 - **Lightweight**: ~2MB Docker image, <50MB RAM
