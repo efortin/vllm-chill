@@ -13,7 +13,7 @@ spec:
   
   # vLLM Runtime Parameters
   tensorParallelSize: 2
-  maxModelLen: 65536
+  maxModelLen: 32768
   gpuMemoryUtilization: 0.91
   enableChunkedPrefill: true
   maxNumBatchedTokens: 4096

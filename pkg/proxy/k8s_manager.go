@@ -234,17 +234,17 @@ func (m *K8sManager) buildPodSpec() corev1.PodSpec {
 					`python3 -m vllm.entrypoints.openai.api_server \
   --model ${MODEL_NAME} \
   --served-model-name ${SERVED_MODEL_NAME} \
-  --tensor-parallel-size 2 \
-  --max-model-len 65536 \
-  --gpu-memory-utilization 0.91 \
-  --enable-chunked-prefill \
-  --max-num-batched-tokens 4096 \
-  --max-num-seqs 16 \
-  --dtype float16 \
-  --disable-custom-all-reduce \
-  --enable-prefix-caching \
-  --cpu-offload-gb 0 \
-  --enable-auto-tool-choice \
+  --tensor-parallel-size ${TENSOR_PARALLEL_SIZE} \
+  --max-model-len ${MAX_MODEL_LEN} \
+  --gpu-memory-utilization ${GPU_MEMORY_UTILIZATION} \
+  ${ENABLE_CHUNKED_PREFILL:+--enable-chunked-prefill} \
+  --max-num-batched-tokens ${MAX_NUM_BATCHED_TOKENS} \
+  --max-num-seqs ${MAX_NUM_SEQS} \
+  --dtype ${DTYPE} \
+  ${DISABLE_CUSTOM_ALL_REDUCE:+--disable-custom-all-reduce} \
+  ${ENABLE_PREFIX_CACHING:+--enable-prefix-caching} \
+  --cpu-offload-gb ${CPU_OFFLOAD_GB} \
+  ${ENABLE_AUTO_TOOL_CHOICE:+--enable-auto-tool-choice} \
   --tool-call-parser ${TOOL_CALL_PARSER} \
   --host 0.0.0.0 \
   --port 8000 \
