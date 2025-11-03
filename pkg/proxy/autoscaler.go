@@ -333,9 +333,9 @@ func (as *AutoScaler) Start() error {
 	mux.HandleFunc("/health", as.healthHandler)
 	mux.HandleFunc("/readyz", as.healthHandler)
 
-	// Add metrics endpoint (always enabled)
-	mux.Handle("/metrics", promhttp.Handler())
-	log.Printf("   Metrics endpoint: http://0.0.0.0:%s/metrics", as.config.Port)
+	// Add metrics endpoint (always enabled) - use /proxy/metrics to avoid conflict with vLLM's /metrics
+	mux.Handle("/proxy/metrics", promhttp.Handler())
+	log.Printf("   Metrics endpoint: http://0.0.0.0:%s/proxy/metrics", as.config.Port)
 
 	mux.HandleFunc("/", as.proxyHandler)
 

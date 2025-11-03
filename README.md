@@ -29,7 +29,7 @@ For home labs and small clusters with limited GPUs, this is costly when vLLM sit
 - **CRD-Based Model Configuration**: Define models as cluster-scoped Kubernetes resources
 - **Static Model Selection**: Configure which model to run via `MODEL_ID` environment variable
 - **Automatic Resource Management**: Creates and manages vLLM Deployment, Service, and ConfigMap
-- **Prometheus Metrics**: Always enabled at `/metrics` endpoint
+- **Prometheus Metrics**: Always enabled at `/proxy/metrics` endpoint
 - **Lightweight**: ~2MB Docker image, <50MB RAM
 - **Multi-arch**: linux/amd64 and linux/arm64
 

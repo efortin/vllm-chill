@@ -1,20 +1,14 @@
 # Metrics
 
-vLLM-Chill exposes Prometheus/OpenMetrics format metrics at the `/metrics` endpoint.
+vLLM-Chill exposes Prometheus/OpenMetrics format metrics at the `/proxy/metrics` endpoint.
+
+**Note:** The proxy uses `/proxy/metrics` to avoid conflicts with vLLM's own `/metrics` endpoint. Both endpoints are accessible:
+- `/proxy/metrics` - vLLM-Chill proxy metrics (autoscaling, requests, etc.)
+- `/metrics` - vLLM backend metrics (when vLLM is running)
 
 ## Enabling Metrics
 
-Metrics are enabled by default. You can disable them with:
-
-```bash
-./bin/vllm-chill serve --enable-metrics=false
-```
-
-Or via environment variable:
-
-```bash
-export ENABLE_METRICS=false
-```
+Proxy metrics are always enabled and cannot be disabled.
 
 ## Available Metrics
 
@@ -177,7 +171,7 @@ scrape_configs:
   - job_name: 'vllm-chill'
     static_configs:
       - targets: ['vllm-chill-svc:8080']
-    metrics_path: '/metrics'
+    metrics_path: '/proxy/metrics'
     scrape_interval: 15s
 ```
 
@@ -195,7 +189,7 @@ spec:
       app: vllm-chill
   endpoints:
     - port: http
-      path: /metrics
+      path: /proxy/metrics
       interval: 15s
 ```
 
