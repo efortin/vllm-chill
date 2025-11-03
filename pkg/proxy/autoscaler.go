@@ -275,15 +275,29 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 		switchingTo := as.switchingToModel
 		as.mu.RUnlock()
 
-		// Return a user-friendly message
+		// Return a chat completion response with loading message
 		rw.Header().Set("Content-Type", "application/json")
 		rw.Header().Set("Retry-After", "30")
-		rw.WriteHeader(http.StatusServiceUnavailable)
+		rw.WriteHeader(http.StatusOK)
 		response := map[string]interface{}{
-			"error": map[string]interface{}{
-				"message": fmt.Sprintf("Loading model %s ...", switchingTo),
-				"type":    "model_loading",
-				"code":    "managed_operation_in_progress",
+			"id":      fmt.Sprintf("chatcmpl-loading-%d", time.Now().Unix()),
+			"object":  "chat.completion",
+			"created": time.Now().Unix(),
+			"model":   switchingTo,
+			"choices": []map[string]interface{}{
+				{
+					"index": 0,
+					"message": map[string]interface{}{
+						"role":    "assistant",
+						"content": fmt.Sprintf("⏳ Loading model %s, please wait...", switchingTo),
+					},
+					"finish_reason": "stop",
+				},
+			},
+			"usage": map[string]interface{}{
+				"prompt_tokens":     0,
+				"completion_tokens": 0,
+				"total_tokens":      0,
 			},
 		}
 		if err := json.NewEncoder(rw).Encode(response); err != nil {
