@@ -281,7 +281,7 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 		rw.WriteHeader(http.StatusServiceUnavailable)
 		response := map[string]interface{}{
 			"error": map[string]interface{}{
-				"message": fmt.Sprintf("Model '%s' is currently loading. Please wait and retry in a few moments.", switchingTo),
+				"message": fmt.Sprintf("Loading model %s ...", switchingTo),
 				"type":    "model_loading",
 				"code":    "managed_operation_in_progress",
 			},
@@ -291,7 +291,6 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	as.mu.RUnlock()
 
 	// Handle model management for chat completion requests (managed mode is always enabled)
 	if r.URL.Path == "/v1/chat/completions" && r.Method == "POST" {
