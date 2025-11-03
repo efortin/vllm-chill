@@ -193,10 +193,8 @@ func (m *K8sManager) ensureDeployment(ctx context.Context) error {
 
 // buildPodSpec builds the pod specification for vLLM
 func (m *K8sManager) buildPodSpec() corev1.PodSpec {
-	terminationGracePeriod := int64(120)
-
 	return corev1.PodSpec{
-		TerminationGracePeriodSeconds: &terminationGracePeriod,
+		TerminationGracePeriodSeconds: func() *int64 { t := int64(0); return &t }(),
 		Volumes: []corev1.Volume{
 			{
 				Name: "hf-cache",
