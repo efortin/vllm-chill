@@ -135,6 +135,8 @@ spec:
             value: "vllm-svc"
           - name: VLLM_PORT
             value: "80"
+          - name: MODEL_ID
+            value: "qwen3-coder-30b-fp8"  # Change this to switch models
           - name: IDLE_TIMEOUT
             value: "20m"
           - name: MANAGED_TIMEOUT

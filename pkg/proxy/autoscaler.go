@@ -27,19 +27,16 @@ const (
 
 // AutoScaler manages automatic scaling of vLLM deployments
 type AutoScaler struct {
-	clientset        *kubernetes.Clientset
-	crdClient        *CRDClient
-	k8sManager       *K8sManager
-	config           *Config
-	targetURL        *url.URL
-	lastActivity     time.Time
-	mu               sync.RWMutex
-	isScalingUp      bool
-	scaleUpCond      *sync.Cond
-	isSwitchingModel bool
-	switchingToModel string
-	modelSwitchCond  *sync.Cond
-	metrics          *MetricsRecorder
+	clientset    *kubernetes.Clientset
+	crdClient    *CRDClient
+	k8sManager   *K8sManager
+	config       *Config
+	targetURL    *url.URL
+	lastActivity time.Time
+	mu           sync.RWMutex
+	isScalingUp  bool
+	scaleUpCond  *sync.Cond
+	metrics      *MetricsRecorder
 }
 
 // NewAutoScaler creates a new AutoScaler instance
@@ -80,25 +77,17 @@ func NewAutoScaler(config *Config) (*AutoScaler, error) {
 		metrics:      NewMetricsRecorder(),
 	}
 	as.scaleUpCond = sync.NewCond(&as.mu)
-	as.modelSwitchCond = sync.NewCond(&as.mu)
 
-	// Ensure K8s resources exist (managed mode is always enabled)
+	// Ensure K8s resources exist with the configured model
 	ctx := context.Background()
-	// Get the first available model from CRD as initial model
-	models, err := as.crdClient.ListModels(ctx)
-	if err != nil || len(models) == 0 {
-		log.Printf("Warning: No VLLMModels found. Resources will be created when first model is requested.")
-	} else {
-		// Use the first model as initial configuration
-		initialModel, err := as.crdClient.GetModel(ctx, models[0].Spec.ServedModelName)
-		if err != nil {
-			log.Printf("Warning: Failed to get initial model config: %v", err)
-		} else {
-			if err := as.k8sManager.EnsureVLLMResources(ctx, initialModel); err != nil {
-				log.Printf("Warning: Failed to ensure vLLM resources: %v", err)
-			}
-		}
+	modelConfig, err := as.crdClient.GetModel(ctx, config.ModelID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get model '%s' from CRD: %w", config.ModelID, err)
 	}
+	if err := as.k8sManager.EnsureVLLMResources(ctx, modelConfig); err != nil {
+		return nil, fmt.Errorf("failed to ensure vLLM resources: %w", err)
+	}
+	log.Printf("Loaded model configuration: %s", config.ModelID)
 
 	return as, nil
 }
@@ -268,72 +257,6 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Update activity
 	as.updateActivity()
-
-	// Check if a managed operation is in progress
-	as.mu.RLock()
-	if as.isSwitchingModel {
-		switchingTo := as.switchingToModel
-		as.mu.RUnlock()
-
-		// Return a chat completion response with loading message
-		rw.Header().Set("Content-Type", "application/json")
-		rw.Header().Set("Retry-After", "30")
-		rw.WriteHeader(http.StatusOK)
-		response := map[string]interface{}{
-			"id":      fmt.Sprintf("chatcmpl-loading-%d", time.Now().Unix()),
-			"object":  "chat.completion",
-			"created": time.Now().Unix(),
-			"model":   switchingTo,
-			"choices": []map[string]interface{}{
-				{
-					"index": 0,
-					"message": map[string]interface{}{
-						"role":    "assistant",
-						"content": fmt.Sprintf("⏳ Loading model %s, please wait...", switchingTo),
-					},
-					"finish_reason": "stop",
-				},
-			},
-			"usage": map[string]interface{}{
-				"prompt_tokens":     0,
-				"completion_tokens": 0,
-				"total_tokens":      0,
-			},
-		}
-		if err := json.NewEncoder(rw).Encode(response); err != nil {
-			log.Printf("Failed to encode response: %v", err)
-		}
-		return
-	}
-	as.mu.RUnlock()
-
-	// Handle model management for chat completion requests (managed mode is always enabled)
-	if r.URL.Path == "/v1/chat/completions" && r.Method == "POST" {
-		// Extract the requested model from the request
-		requestedModel, err := extractModelFromRequest(r)
-		if err != nil {
-			log.Printf("Failed to extract model from request: %v", err)
-			// Continue without model management
-		} else if requestedModel != "" {
-			// Try to switch to the requested model
-			if err := as.switchModelWithLock(ctx, requestedModel); err != nil {
-				log.Printf("Failed to switch model: %v", err)
-				rw.Header().Set("Content-Type", "application/json")
-				rw.WriteHeader(http.StatusServiceUnavailable)
-				response := map[string]interface{}{
-					"error": map[string]interface{}{
-						"message": fmt.Sprintf("Failed to switch to model '%s': %v", requestedModel, err),
-						"type":    "managed_operation_error",
-						"code":    "managed_operation_failed",
-					},
-				}
-				if err := json.NewEncoder(rw).Encode(response); err != nil {
-					log.Printf("Failed to encode response: %v", err)
-				}
-				return
-			}
-		}
-	}
 
 	// Ensure deployment is scaled up
 	if err := as.ensureScaledUp(ctx); err != nil {

@@ -104,24 +104,23 @@ kubectl port-forward -n vllm svc/vllm-chill-svc 8080:80
 curl http://localhost:8080/metrics
 ```
 
-### Model Switching
+### Switching Models
 
-Switch models by changing the `model` field in your request:
+To switch models, update the `MODEL_ID` environment variable in the vllm-chill deployment:
 
 ```bash
-curl http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "deepseek-r1-fp8",
-    "messages": [{"role": "user", "content": "Hello"}]
-  }'
+kubectl set env deployment/vllm-chill MODEL_ID=qwen3-coder-30b-fp8 -n vllm
 ```
 
-vllm-chill will:
-1. Scale down current vLLM deployment
-2. Update ConfigMap with new model config
-3. Scale up with new model
-4. Return helpful loading message if model is switching
+Or edit the manifest directly:
+
+```yaml
+env:
+  - name: MODEL_ID
+    value: "qwen3-coder-30b-fp8"  # Change this to switch models
+```
+
+The proxy will restart and load the new model configuration from the VLLMModel CRD.
 
 ## Configuration
 
@@ -137,10 +136,12 @@ env:
     value: "vllm"
   - name: VLLM_CONFIGMAP
     value: "vllm-config"
+  - name: MODEL_ID
+    value: "deepseek-r1-fp8"  # Model to load from VLLMModel CRD (required)
   - name: IDLE_TIMEOUT
     value: "20m"              # Scale to 0 after 20min idle
   - name: MANAGED_TIMEOUT
-    value: "5m"               # Timeout for model switches
+    value: "5m"               # Timeout for managed operations
   - name: LOG_OUTPUT
     value: "false"            # Log response bodies (debug only)
 ```
