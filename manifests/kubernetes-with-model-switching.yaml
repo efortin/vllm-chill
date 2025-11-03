@@ -124,14 +124,23 @@ spec:
         imagePullPolicy: Always  # Always pull latest image
         args:
           - serve
-          - --namespace=vllm
-          - --deployment=vllm
-          - --configmap=vllm-config
-          - --target-host=vllm-svc
-          - --target-port=80
-          - --idle-timeout=20m
-          - --managed-timeout=5m
-          - --port=8080
+        env:
+          - name: VLLM_NAMESPACE
+            value: "vllm"
+          - name: VLLM_DEPLOYMENT
+            value: "vllm"
+          - name: VLLM_CONFIGMAP
+            value: "vllm-config"
+          - name: VLLM_TARGET
+            value: "vllm-svc"
+          - name: VLLM_PORT
+            value: "80"
+          - name: IDLE_TIMEOUT
+            value: "20m"
+          - name: MANAGED_TIMEOUT
+            value: "5m"
+          - name: PORT
+            value: "8080"
         ports:
         - containerPort: 8080
           name: http
