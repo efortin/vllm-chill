@@ -3,6 +3,7 @@ package proxy
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"io"
 	"log"
 	"net"
@@ -13,22 +14,24 @@ import (
 // responseWriter wraps http.ResponseWriter to capture status code and response size
 type responseWriter struct {
 	http.ResponseWriter
-	statusCode       int
-	bytesWritten     int64
-	body             *bytes.Buffer
-	captureBody      bool
-	streamBuffer     *bytes.Buffer // Buffer for accumulating streaming chunks
-	xmlDetectionMode bool          // Track if we might be receiving XML
+	statusCode         int
+	bytesWritten       int64
+	body               *bytes.Buffer
+	captureBody        bool
+	sseBuffer          *bytes.Buffer // Buffer for accumulating SSE chunks
+	accumulatedContent strings.Builder
+	xmlDetectionMode   bool
+	chunkBuffer        []map[string]interface{} // Store parsed chunks
+	processedChunks    int                      // Number of chunks already processed
 }
 
 // newResponseWriter creates a new response writer wrapper
 func newResponseWriter(w http.ResponseWriter, captureBody bool) *responseWriter {
 	rw := &responseWriter{
-		ResponseWriter:   w,
-		statusCode:       http.StatusOK,
-		captureBody:      captureBody,
-		streamBuffer:     &bytes.Buffer{},
-		xmlDetectionMode: false,
+		ResponseWriter: w,
+		statusCode:     http.StatusOK,
+		captureBody:    captureBody,
+		sseBuffer:      &bytes.Buffer{},
 	}
 	if captureBody {
 		rw.body = &bytes.Buffer{}
@@ -45,58 +48,154 @@ func (rw *responseWriter) WriteHeader(code int) {
 
 // Write captures the response size and converts XML tool calls
 func (rw *responseWriter) Write(b []byte) (int, error) {
-	content := string(b)
+	// Accumulate all data in SSE buffer
+	rw.sseBuffer.Write(b)
 
-	// Detect if we're potentially receiving XML tool calls
-	if !rw.xmlDetectionMode && strings.Contains(content, "<function=") {
-		rw.xmlDetectionMode = true
-		log.Printf("[XML-PARSER] XML detection mode activated")
+	// Try to process complete lines
+	content := rw.sseBuffer.String()
+
+	// Check if we have SSE data chunks
+	if !strings.HasPrefix(content, "data: ") {
+		// Not SSE format, pass through
+		n, err := rw.ResponseWriter.Write(b)
+		rw.bytesWritten += int64(n)
+		if rw.captureBody {
+			rw.body.Write(b)
+		}
+		return len(b), err
 	}
 
-	// If in XML detection mode, accumulate chunks
-	if rw.xmlDetectionMode {
-		rw.streamBuffer.Write(b)
+	// Parse SSE chunks and extract content
+	lines := strings.Split(content, "\n")
+	chunkIndex := 0
+	for _, line := range lines {
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
 
-		// Check if we have a complete tool call
-		accumulated := rw.streamBuffer.String()
-		if strings.Contains(accumulated, "</tool_call>") {
-			log.Printf("[XML-PARSER] Detected complete XML tool call in accumulated buffer (length: %d bytes)", rw.streamBuffer.Len())
+		jsonData := strings.TrimPrefix(line, "data: ")
+		if jsonData == "[DONE]" {
+			continue
+		}
 
-			// Try to convert
-			converted := convertXMLToolCallsInResponse(rw.streamBuffer.Bytes())
+		// Skip already processed chunks
+		if chunkIndex < rw.processedChunks {
+			chunkIndex++
+			continue
+		}
 
-			if len(converted) != rw.streamBuffer.Len() {
-				log.Printf("[XML-PARSER] Converted XML to JSON (original: %d bytes, converted: %d bytes)", rw.streamBuffer.Len(), len(converted))
+		var chunk map[string]interface{}
+		if err := json.Unmarshal([]byte(jsonData), &chunk); err != nil {
+			continue
+		}
+
+		// Extract content from delta
+		if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
+			if choice, ok := choices[0].(map[string]interface{}); ok {
+				if delta, ok := choice["delta"].(map[string]interface{}); ok {
+					if deltaContent, ok := delta["content"].(string); ok && deltaContent != "" {
+						rw.accumulatedContent.WriteString(deltaContent)
+
+						// Detect XML
+						accumulated := rw.accumulatedContent.String()
+						if !rw.xmlDetectionMode && strings.Contains(accumulated, "<function=") {
+							rw.xmlDetectionMode = true
+							log.Printf("[XML-PARSER] XML detection mode activated")
+						}
+					}
+				}
 			}
+		}
 
-			// Write the accumulated and converted data
-			n, err := rw.ResponseWriter.Write(converted)
+		// Store chunk for later processing
+		rw.chunkBuffer = append(rw.chunkBuffer, chunk)
+		rw.processedChunks++
+		chunkIndex++
+	}
+
+	// Check if we have complete XML
+	accumulated := rw.accumulatedContent.String()
+	if rw.xmlDetectionMode && strings.Contains(accumulated, "</tool_call>") {
+		log.Printf("[XML-PARSER] Complete XML tool call detected, converting...")
+
+		// Parse XML
+		toolCalls := parseXMLToolCalls(accumulated)
+		if len(toolCalls) > 0 {
+			log.Printf("[XML-PARSER] Parsed %d tool calls", len(toolCalls))
+
+			// Convert chunks to tool_calls format
+			convertedData := rw.convertChunksToToolCalls(toolCalls[0])
+
+			// Write converted data
+			n, err := rw.ResponseWriter.Write(convertedData)
 			rw.bytesWritten += int64(n)
-
 			if rw.captureBody {
-				rw.body.Write(converted)
+				rw.body.Write(convertedData)
 			}
 
-			// Reset buffer and detection mode
-			rw.streamBuffer.Reset()
+			// Reset state
+			rw.sseBuffer.Reset()
+			rw.accumulatedContent.Reset()
 			rw.xmlDetectionMode = false
+			rw.chunkBuffer = nil
+			rw.processedChunks = 0
 
 			return len(b), err
 		}
-
-		// Not complete yet, don't write anything (buffer it)
-		return len(b), nil
 	}
 
-	// Normal passthrough (no XML detected)
+	// Not complete yet or no XML - pass through original data
 	n, err := rw.ResponseWriter.Write(b)
 	rw.bytesWritten += int64(n)
-
 	if rw.captureBody {
 		rw.body.Write(b)
 	}
 
 	return len(b), err
+}
+
+// convertChunksToToolCalls converts accumulated chunks to tool_calls format
+func (rw *responseWriter) convertChunksToToolCalls(toolCall ToolCall) []byte {
+	var result bytes.Buffer
+
+	// Find the first chunk with content and replace it with tool_calls
+	foundContent := false
+	for _, chunk := range rw.chunkBuffer {
+		if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
+			if choice, ok := choices[0].(map[string]interface{}); ok {
+				if delta, ok := choice["delta"].(map[string]interface{}); ok {
+					if !foundContent {
+						// First chunk with content - replace with tool_calls
+						delete(delta, "content")
+						delta["tool_calls"] = []map[string]interface{}{
+							{
+								"index": 0,
+								"id":    toolCall.ID,
+								"type":  toolCall.Type,
+								"function": map[string]interface{}{
+									"name":      toolCall.Function.Name,
+									"arguments": toolCall.Function.Arguments,
+								},
+							},
+						}
+						foundContent = true
+					} else {
+						// Subsequent chunks - remove content
+						delete(delta, "content")
+					}
+				}
+			}
+		}
+
+		// Re-encode chunk
+		chunkJSON, _ := json.Marshal(chunk)
+		result.WriteString("data: ")
+		result.Write(chunkJSON)
+		result.WriteString("\n\n")
+	}
+
+	log.Printf("[XML-PARSER] Converted XML to JSON tool calls")
+	return result.Bytes()
 }
 
 // Hijack implements http.Hijacker

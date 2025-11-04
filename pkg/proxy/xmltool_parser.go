@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"bytes"
 	"encoding/json"
 	"log"
 	"strings"
@@ -154,107 +153,4 @@ func parseParameters(content string) map[string]string {
 // generateToolCallID generates a simple tool call ID
 func generateToolCallID(index int) string {
 	return "call_" + string(rune('a'+index%26)) + string(rune('0'+index/26))
-}
-
-// hasXMLToolCalls checks if content contains XML-style tool calls
-func hasXMLToolCalls(content string) bool {
-	return strings.Contains(content, "<function=") && strings.Contains(content, "</tool_call>")
-}
-
-// convertXMLToolCallsInResponse converts XML tool calls in a streaming response
-func convertXMLToolCallsInResponse(data []byte) []byte {
-	content := string(data)
-
-	// Check if this is a streaming response with XML tool calls
-	if !strings.Contains(content, "data: ") || !hasXMLToolCalls(content) {
-		return data
-	}
-
-	lines := strings.Split(content, "\n")
-	var result bytes.Buffer
-	var accumulatedContent strings.Builder
-
-	for _, line := range lines {
-		if !strings.HasPrefix(line, "data: ") {
-			result.WriteString(line)
-			result.WriteString("\n")
-			continue
-		}
-
-		// Extract JSON from data: line
-		jsonData := strings.TrimPrefix(line, "data: ")
-		if jsonData == "[DONE]" {
-			result.WriteString(line)
-			result.WriteString("\n")
-			continue
-		}
-
-		// Try to parse as JSON
-		var chunk map[string]interface{}
-		if err := json.Unmarshal([]byte(jsonData), &chunk); err != nil {
-			result.WriteString(line)
-			result.WriteString("\n")
-			continue
-		}
-
-		// Check if this chunk has content with XML
-		choices, ok := chunk["choices"].([]interface{})
-		if !ok || len(choices) == 0 {
-			result.WriteString(line)
-			result.WriteString("\n")
-			continue
-		}
-
-		choice := choices[0].(map[string]interface{})
-		delta, ok := choice["delta"].(map[string]interface{})
-		if !ok {
-			result.WriteString(line)
-			result.WriteString("\n")
-			continue
-		}
-
-		deltaContent, ok := delta["content"].(string)
-		if ok && deltaContent != "" {
-			accumulatedContent.WriteString(deltaContent)
-		}
-
-		// Check if we have complete XML tool calls
-		accumulated := accumulatedContent.String()
-		if strings.Contains(accumulated, "</tool_call>") && hasXMLToolCalls(accumulated) {
-			// Parse XML tool calls
-			toolCalls := parseXMLToolCalls(accumulated)
-
-			if len(toolCalls) > 0 {
-				// Replace content with tool_calls
-				delete(delta, "content")
-				delta["tool_calls"] = []map[string]interface{}{
-					{
-						"index": 0,
-						"id":    toolCalls[0].ID,
-						"type":  toolCalls[0].Type,
-						"function": map[string]interface{}{
-							"name":      toolCalls[0].Function.Name,
-							"arguments": toolCalls[0].Function.Arguments,
-						},
-					},
-				}
-
-				// Re-encode the chunk
-				modifiedJSON, _ := json.Marshal(chunk)
-				result.WriteString("data: ")
-				result.Write(modifiedJSON)
-				result.WriteString("\n")
-
-				// Clear accumulated content
-				accumulatedContent.Reset()
-				continue
-			}
-		}
-
-		// No conversion needed, write original line
-		result.WriteString(line)
-		result.WriteString("\n")
-	}
-
-	return result.Bytes()
 }
