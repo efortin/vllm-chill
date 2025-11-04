@@ -14,15 +14,17 @@ import (
 // responseWriter wraps http.ResponseWriter to capture status code and response size
 type responseWriter struct {
 	http.ResponseWriter
-	statusCode         int
-	bytesWritten       int64
-	body               *bytes.Buffer
-	captureBody        bool
-	sseBuffer          *bytes.Buffer // Buffer for accumulating SSE chunks
-	accumulatedContent strings.Builder
-	xmlDetectionMode   bool
-	chunkBuffer        []map[string]interface{} // Store parsed chunks
-	processedChunks    int                      // Number of chunks already processed
+	statusCode          int
+	bytesWritten        int64
+	body                *bytes.Buffer
+	captureBody         bool
+	sseBuffer           *bytes.Buffer // Buffer for accumulating SSE chunks
+	accumulatedContent  strings.Builder
+	xmlDetectionMode    bool
+	chunkBuffer         []map[string]interface{} // Store parsed chunks
+	processedChunks     int                      // Number of chunks already processed
+	toolCallsDetected   bool                     // Whether native tool calls were detected
+	accumulatedToolCall map[string]interface{}   // Accumulated tool call from streaming chunks
 }
 
 // newResponseWriter creates a new response writer wrapper
@@ -93,6 +95,16 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 		if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
 			if choice, ok := choices[0].(map[string]interface{}); ok {
 				if delta, ok := choice["delta"].(map[string]interface{}); ok {
+					// Check for native tool calls
+					if toolCalls, ok := delta["tool_calls"].([]interface{}); ok && len(toolCalls) > 0 {
+						if !rw.toolCallsDetected {
+							rw.toolCallsDetected = true
+							log.Printf("[TOOL-CALLS] Native tool calls detected in streaming response")
+						}
+						rw.accumulateToolCalls(toolCalls)
+					}
+
+					// Extract text content
 					if deltaContent, ok := delta["content"].(string); ok && deltaContent != "" {
 						rw.accumulatedContent.WriteString(deltaContent)
 
@@ -101,6 +113,24 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 						if !rw.xmlDetectionMode && strings.Contains(accumulated, "<function=") {
 							rw.xmlDetectionMode = true
 							log.Printf("[XML-PARSER] XML detection mode activated")
+						}
+					}
+				}
+			}
+		}
+
+		// Check for finish_reason indicating tool calls are complete
+		if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
+			if choice, ok := choices[0].(map[string]interface{}); ok {
+				if finishReason, ok := choice["finish_reason"].(string); ok && finishReason == "tool_calls" {
+					// Native tool calls are complete
+					if rw.toolCallsDetected && rw.accumulatedToolCall != nil {
+						log.Printf("[TOOL-CALLS] Complete native tool call detected")
+						// Log the complete tool call for debugging
+						if function, ok := rw.accumulatedToolCall["function"].(map[string]interface{}); ok {
+							funcName, _ := function["name"].(string)
+							funcArgs, _ := function["arguments"].(string)
+							log.Printf("[TOOL-CALLS] Function: %s, Arguments: %s", funcName, funcArgs)
 						}
 					}
 				}
@@ -144,7 +174,14 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 		}
 	}
 
-	// Not complete yet or no XML - pass through original data
+	// If XML detection is active, buffer and wait for completion
+	if rw.xmlDetectionMode {
+		// Already buffered in sseBuffer and chunkBuffer, don't pass through yet
+		log.Printf("[XML-PARSER] Buffering chunks, waiting for complete XML...")
+		return len(b), nil
+	}
+
+	// Not XML mode - pass through original data
 	n, err := rw.ResponseWriter.Write(b)
 	rw.bytesWritten += int64(n)
 	if rw.captureBody {
@@ -152,6 +189,56 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	}
 
 	return len(b), err
+}
+
+// accumulateToolCalls accumulates tool call chunks from streaming response
+func (rw *responseWriter) accumulateToolCalls(toolCalls []interface{}) {
+	for _, tc := range toolCalls {
+		toolCallMap, ok := tc.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Initialize accumulated tool call if needed
+		if rw.accumulatedToolCall == nil {
+			rw.accumulatedToolCall = make(map[string]interface{})
+		}
+
+		// Accumulate ID
+		if id, ok := toolCallMap["id"].(string); ok && id != "" {
+			rw.accumulatedToolCall["id"] = id
+		}
+
+		// Accumulate type
+		if typ, ok := toolCallMap["type"].(string); ok && typ != "" {
+			rw.accumulatedToolCall["type"] = typ
+		}
+
+		// Accumulate index
+		if idx, ok := toolCallMap["index"].(float64); ok {
+			rw.accumulatedToolCall["index"] = idx
+		}
+
+		// Accumulate function details
+		if function, ok := toolCallMap["function"].(map[string]interface{}); ok {
+			accFunc, _ := rw.accumulatedToolCall["function"].(map[string]interface{})
+			if accFunc == nil {
+				accFunc = make(map[string]interface{})
+				rw.accumulatedToolCall["function"] = accFunc
+			}
+
+			// Accumulate function name
+			if name, ok := function["name"].(string); ok && name != "" {
+				accFunc["name"] = name
+			}
+
+			// Accumulate function arguments (streaming)
+			if args, ok := function["arguments"].(string); ok && args != "" {
+				existingArgs, _ := accFunc["arguments"].(string)
+				accFunc["arguments"] = existingArgs + args
+			}
+		}
+	}
 }
 
 // convertChunksToToolCalls converts accumulated chunks to tool_calls format
