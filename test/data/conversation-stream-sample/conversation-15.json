@@ -1,0 +1,58 @@
+{
+  "title": "HTTP GET health",
+  "model": "qwen3-coder-30b-fp8",
+  "generate_stream": [
+    {
+      "data": "{\"id\": \"chatcmpl-be323d1c58e0799c39f4e2f43fe4f1f3\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"Working on your request...\\n\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-be323d1c58e0799c39f4e2f43fe4f1f3\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"Preparing tool call...\\n\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-be323d1c58e0799c39f4e2f43fe4f1f3\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"Stand by: \"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-be323d1c58e0799c39f4e2f43fe4f1f3\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"<tool_call name=\\\"http.get\\\">\\n\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-be323d1c58e0799c39f4e2f43fe4f1f3\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"  <args>\\n    <url>http://loc\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-be323d1c58e0799c39f4e2f43fe4f1f3\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"alhost:8000/health</url>\\n   \"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-be323d1c58e0799c39f4e2f43fe4f1f3\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \" <timeout>2</timeout>\\n  </ar\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-be323d1c58e0799c39f4e2f43fe4f1f3\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"gs>\\n</tool_call>\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-be323d1c58e0799c39f4e2f43fe4f1f3\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"\"}, \"logprobs\": null, \"finish_reason\": \"stop\", \"stop_reason\": null, \"token_ids\": null}]}"
+    }
+  ],
+  "expected": {
+    "id": "chatcmpl-be323d1c58e0799c39f4e2f43fe4f1f3",
+    "object": "chat.completion",
+    "created": 1762247516,
+    "model": "qwen3-coder-30b-fp8",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "call_ymisra30p16ejly0wnjr4zmg",
+              "type": "function",
+              "function": {
+                "name": "http.get",
+                "arguments": "{\"url\":\"http://localhost:8000/health\",\"timeout\":2}"
+              }
+            }
+          ]
+        },
+        "finish_reason": "tool_calls"
+      }
+    ]
+  }
+}

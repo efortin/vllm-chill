@@ -1,0 +1,58 @@
+{
+  "title": "K8s rollout restart",
+  "model": "qwen3-coder-30b-fp8",
+  "generate_stream": [
+    {
+      "data": "{\"id\": \"chatcmpl-c2bdc0d4833b3bd939b24a2af4a85f3a\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"Working on your request...\\n\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-c2bdc0d4833b3bd939b24a2af4a85f3a\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"Preparing tool call...\\n\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-c2bdc0d4833b3bd939b24a2af4a85f3a\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"Stand by: \"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-c2bdc0d4833b3bd939b24a2af4a85f3a\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"<tool_call    name = \\\"k8s.ro\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-c2bdc0d4833b3bd939b24a2af4a85f3a\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"llout_restart\\\"><args><namesp\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-c2bdc0d4833b3bd939b24a2af4a85f3a\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"ace>ai-apps</namespace><depl\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-c2bdc0d4833b3bd939b24a2af4a85f3a\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"oyment>vllm</deployment></ar\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-c2bdc0d4833b3bd939b24a2af4a85f3a\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"gs></tool_call>\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-c2bdc0d4833b3bd939b24a2af4a85f3a\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"\"}, \"logprobs\": null, \"finish_reason\": \"stop\", \"stop_reason\": null, \"token_ids\": null}]}"
+    }
+  ],
+  "expected": {
+    "id": "chatcmpl-c2bdc0d4833b3bd939b24a2af4a85f3a",
+    "object": "chat.completion",
+    "created": 1762247516,
+    "model": "qwen3-coder-30b-fp8",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "call_1zxe3dg7pkudrgzgyf7dz6p7",
+              "type": "function",
+              "function": {
+                "name": "k8s.rollout_restart",
+                "arguments": "{\"namespace\":\"ai-apps\",\"deployment\":\"vllm\"}"
+              }
+            }
+          ]
+        },
+        "finish_reason": "tool_calls"
+      }
+    ]
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "title": "Git clone",
+  "model": "qwen3-coder-30b-fp8",
+  "generate_stream": [
+    {
+      "data": "{\"id\": \"chatcmpl-0e4ec02494b9333d9e92f0bff875e344\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"Working on your request...\\n\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-0e4ec02494b9333d9e92f0bff875e344\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"Preparing tool call...\\n\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-0e4ec02494b9333d9e92f0bff875e344\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"Stand by: \"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-0e4ec02494b9333d9e92f0bff875e344\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"<tool_call name=\\\"git.clone\\\">\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-0e4ec02494b9333d9e92f0bff875e344\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"\\n  <args><repo>https://githu\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-0e4ec02494b9333d9e92f0bff875e344\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"b.com/efortin/vllm-chill.git\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-0e4ec02494b9333d9e92f0bff875e344\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"</repo><branch>main</branch>\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-0e4ec02494b9333d9e92f0bff875e344\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"</args>\\n</tool_call>\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-0e4ec02494b9333d9e92f0bff875e344\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"\"}, \"logprobs\": null, \"finish_reason\": \"stop\", \"stop_reason\": null, \"token_ids\": null}]}"
+    }
+  ],
+  "expected": {
+    "id": "chatcmpl-0e4ec02494b9333d9e92f0bff875e344",
+    "object": "chat.completion",
+    "created": 1762247516,
+    "model": "qwen3-coder-30b-fp8",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "call_aof6z97g2ts6u4hij2u1j6ei",
+              "type": "function",
+              "function": {
+                "name": "git.clone",
+                "arguments": "{\"repo\":\"https://github.com/efortin/vllm-chill.git\",\"branch\":\"main\"}"
+              }
+            }
+          ]
+        },
+        "finish_reason": "tool_calls"
+      }
+    ]
+  }
+}

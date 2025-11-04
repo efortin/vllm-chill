@@ -1,0 +1,318 @@
+[
+  {
+    "id": "01",
+    "description": "Well-formed single tool_call with JSON arguments",
+    "model_output_xml": "<tool_call>\n  <tool_name>web_search</tool_name>\n  <tool_arguments>{\"query\":\"keda http addon timeout\",\"top_k\":5}</tool_arguments>\n</tool_call>",
+    "expected_tools": [
+      {
+        "name": "web_search",
+        "arguments": {
+          "query": "keda http addon timeout",
+          "top_k": 5
+        }
+      }
+    ]
+  },
+  {
+    "id": "02",
+    "description": "Arguments wrapped in CDATA; preserve special characters",
+    "model_output_xml": "<tool_call>\n  <tool_name>get_metrics</tool_name>\n  <tool_arguments><![CDATA[{\"path\":\"/metrics\",\"filter\":\"vllm:num_requests_running|vllm:engine_state&debug\"}]]></tool_arguments>\n</tool_call>",
+    "expected_tools": [
+      {
+        "name": "get_metrics",
+        "arguments": {
+          "path": "/metrics",
+          "filter": "vllm:num_requests_running|vllm:engine_state&debug"
+        }
+      }
+    ]
+  },
+  {
+    "id": "03",
+    "description": "Two tool_calls back-to-back (sequence extraction)",
+    "model_output_xml": "<tool_call>\n  <tool_name>k8s.scale</tool_name>\n  <tool_arguments>{\"namespace\":\"ai-apps\",\"deployment\":\"vllm\",\"replicas\":0}</tool_arguments>\n</tool_call>\n<tool_call>\n  <tool_name>notify</tool_name>\n  <tool_arguments>{\"channel\":\"ops\",\"message\":\"vLLM scaled to 0 after 5m idle\"}</tool_arguments>\n</tool_call>",
+    "expected_tools": [
+      {
+        "name": "k8s.scale",
+        "arguments": {
+          "namespace": "ai-apps",
+          "deployment": "vllm",
+          "replicas": 0
+        }
+      },
+      {
+        "name": "notify",
+        "arguments": {
+          "channel": "ops",
+          "message": "vLLM scaled to 0 after 5m idle"
+        }
+      }
+    ]
+  },
+  {
+    "id": "04",
+    "description": "Variant using <function_call> instead of <tool_call>",
+    "model_output_xml": "<function_call>\n  <name>http.get</name>\n  <arguments>{\"url\":\"http://localhost:8000/is_sleeping\",\"timeout\":2}</arguments>\n</function_call>",
+    "expected_tools": [
+      {
+        "name": "http.get",
+        "arguments": {
+          "url": "http://localhost:8000/is_sleeping",
+          "timeout": 2
+        }
+      }
+    ]
+  },
+  {
+    "id": "05",
+    "description": "Truncated output: missing </tool_call> closing tag",
+    "model_output_xml": "<tool_call>\n  <tool_name>k8s.annotate</tool_name>\n  <tool_arguments>{\"namespace\":\"ai-apps\",\"deployment\":\"vllm\",\"annotation\":\"last-activity\",\"value\":\"1730515200\"}\n<!-- missing </tool_call> -->",
+    "expected_tools": [
+      {
+        "name": "k8s.annotate",
+        "arguments": {
+          "namespace": "ai-apps",
+          "deployment": "vllm",
+          "annotation": "last-activity",
+          "value": "1730515200"
+        }
+      }
+    ]
+  },
+  {
+    "id": "06",
+    "description": "Escaped XML entities inside JSON string",
+    "model_output_xml": "<tool_call>\n  <tool_name>log.search</tool_name>\n  <tool_arguments>{\"pattern\":\"WARNING.*api_server.py:966\",\"since\":\"-15m\",\"where\":\"pod:vllm &amp; ns:ai-apps\"}</tool_arguments>\n</tool_call>",
+    "expected_tools": [
+      {
+        "name": "log.search",
+        "arguments": {
+          "pattern": "WARNING.*api_server.py:966",
+          "since": "-15m",
+          "where": "pod:vllm & ns:ai-apps"
+        }
+      }
+    ]
+  },
+  {
+    "id": "07",
+    "description": "Arguments provided as nested XML instead of JSON",
+    "model_output_xml": "<tool_call>\n  <tool_name>k8s.scale</tool_name>\n  <tool_arguments>\n    <args>\n      <namespace>ai-apps</namespace>\n      <deployment>vllm</deployment>\n      <replicas type=\"int\">1</replicas>\n    </args>\n  </tool_arguments>\n</tool_call>",
+    "expected_tools": [
+      {
+        "name": "k8s.scale",
+        "arguments": {
+          "namespace": "ai-apps",
+          "deployment": "vllm",
+          "replicas": 1
+        }
+      }
+    ]
+  },
+  {
+    "id": "08",
+    "description": "Whitespace/newlines around <tool_name>",
+    "model_output_xml": "<tool_call>\n  <tool_name>\n    http.post\n  </tool_name>\n  <tool_arguments>{\"url\":\"https://vllm.sir-alfred.io/sleep\",\"body\":{\"level\":2}}</tool_arguments>\n</tool_call>",
+    "expected_tools": [
+      {
+        "name": "http.post",
+        "arguments": {
+          "url": "https://vllm.sir-alfred.io/sleep",
+          "body": {
+            "level": 2
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "09",
+    "description": "Reasoning/noise before and after the tool_call",
+    "model_output_xml": "<think>I'll check activity then scale down…</think>\nOkay, scaling to zero now:\n<tool_call>\n  <tool_name>k8s.scale</tool_name>\n  <tool_arguments>{\"namespace\":\"ai-apps\",\"deployment\":\"vllm\",\"replicas\":0}</tool_arguments>\n</tool_call>\nDone.",
+    "expected_tools": [
+      {
+        "name": "k8s.scale",
+        "arguments": {
+          "namespace": "ai-apps",
+          "deployment": "vllm",
+          "replicas": 0
+        }
+      }
+    ]
+  },
+  {
+    "id": "10",
+    "description": "Streaming fragments with part attribute (must be merged)",
+    "model_output_xml": "<tool_call part=\"1/2\">\n  <tool_name>log.search</tool_name>\n  <tool_arguments>{\"pattern\":\"vllm:num_requests_running\",\"since\":\"-5m\",</tool_arguments>\n</tool_call>\n<tool_call part=\"2/2\">\n  <tool_arguments>\"where\":\"pod:vllm\"}</tool_arguments>\n</tool_call>",
+    "expected_tools": [
+      {
+        "name": "log.search",
+        "arguments": {
+          "pattern": "vllm:num_requests_running",
+          "since": "-5m",
+          "where": "pod:vllm"
+        }
+      }
+    ]
+  },
+  {
+    "id": "11",
+    "description": "Wrong tag name <arguments> instead of <tool_arguments>",
+    "model_output_xml": "<tool_call>\n  <tool_name>notify</tool_name>\n  <arguments>{\"channel\":\"ops\",\"message\":\"wake in progress\"}</arguments>\n</tool_call>",
+    "expected_tools": [
+      {
+        "name": "notify",
+        "arguments": {
+          "channel": "ops",
+          "message": "wake in progress"
+        }
+      }
+    ]
+  },
+  {
+    "id": "12",
+    "description": "Namespace noise in tags (should be ignored)",
+    "model_output_xml": "<qwen:tool_call xmlns:qwen=\"http://qwen.ai/schema\">\n  <qwen:tool_name>k8s.annotate</qwen:tool_name>\n  <qwen:tool_arguments>{\"namespace\":\"ai-apps\",\"deployment\":\"vllm\",\"annotation\":\"last-activity\",\"value\":\"1730515200\"}</qwen:tool_arguments>\n</qwen:tool_call>",
+    "expected_tools": [
+      {
+        "name": "k8s.annotate",
+        "arguments": {
+          "namespace": "ai-apps",
+          "deployment": "vllm",
+          "annotation": "last-activity",
+          "value": "1730515200"
+        }
+      }
+    ]
+  },
+  {
+    "id": "13",
+    "description": "Tool name with dots, dashes and slashes",
+    "model_output_xml": "<tool_call>\n  <tool_name>k8s.rbac/patch-role</tool_name>\n  <tool_arguments>{\"namespace\":\"ai-apps\",\"name\":\"vllm-scaler\",\"rules\":[{\"apiGroups\":[\"apps\"],\"resources\":[\"deployments/scale\"],\"verbs\":[\"patch\",\"update\"]}]}</tool_arguments>\n</tool_call>",
+    "expected_tools": [
+      {
+        "name": "k8s.rbac/patch-role",
+        "arguments": {
+          "namespace": "ai-apps",
+          "name": "vllm-scaler",
+          "rules": [
+            {
+              "apiGroups": [
+                "apps"
+              ],
+              "resources": [
+                "deployments/scale"
+              ],
+              "verbs": [
+                "patch",
+                "update"
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "14",
+    "description": "XML inside fenced code block (Markdown)",
+    "model_output_xml": "Here is the call:\n```xml\n<tool_call>\n  <tool_name>http.get</tool_name>\n  <tool_arguments>{\"url\":\"http://vllm-svc/metrics\",\"timeout\":2}</tool_arguments>\n</tool_call>\n```",
+    "expected_tools": [
+      {
+        "name": "http.get",
+        "arguments": {
+          "url": "http://vllm-svc/metrics",
+          "timeout": 2
+        }
+      }
+    ]
+  },
+  {
+    "id": "15",
+    "description": "CDATA wrapping whole tool_call (single blob)",
+    "model_output_xml": "<![CDATA[\n<tool_call>\n  <tool_name>k8s.scale</tool_name>\n  <tool_arguments>{\"namespace\":\"ai-apps\",\"deployment\":\"vllm\",\"replicas\":1}</tool_arguments>\n</tool_call>\n]]>",
+    "expected_tools": [
+      {
+        "name": "k8s.scale",
+        "arguments": {
+          "namespace": "ai-apps",
+          "deployment": "vllm",
+          "replicas": 1
+        }
+      }
+    ]
+  },
+  {
+    "id": "16",
+    "description": "Empty tool_arguments element (should default to {})",
+    "model_output_xml": "<tool_call>\n  <tool_name>server_info</tool_name>\n  <tool_arguments></tool_arguments>\n</tool_call>",
+    "expected_tools": [
+      {
+        "name": "server_info",
+        "arguments": {}
+      }
+    ]
+  },
+  {
+    "id": "17",
+    "description": "Tool call preceded by BOM and stray unicode whitespace",
+    "model_output_xml": "\uFEFF \t \n<tool_call>\n  <tool_name>k8s.get</tool_name>\n  <tool_arguments>{\"kind\":\"Deployment\",\"namespace\":\"ai-apps\",\"name\":\"vllm\"}</tool_arguments>\n</tool_call>",
+    "expected_tools": [
+      {
+        "name": "k8s.get",
+        "arguments": {
+          "kind": "Deployment",
+          "namespace": "ai-apps",
+          "name": "vllm"
+        }
+      }
+    ]
+  },
+  {
+    "id": "18",
+    "description": "Mixed quotes and escaped quotes inside JSON args",
+    "model_output_xml": "<tool_call>\n  <tool_name>notify</tool_name>\n  <tool_arguments>{\"channel\":\"ops\",\"message\":\"Scaled to 0 after \\\"idle\\\" window\"}</tool_arguments>\n</tool_call>",
+    "expected_tools": [
+      {
+        "name": "notify",
+        "arguments": {
+          "channel": "ops",
+          "message": "Scaled to 0 after \"idle\" window"
+        }
+      }
+    ]
+  },
+  {
+    "id": "19",
+    "description": "Sleep endpoint with query param provided in body JSON; parser should not lose it",
+    "model_output_xml": "<tool_call>\n  <tool_name>http.post</tool_name>\n  <tool_arguments>{\"url\":\"https://vllm.sir-alfred.io/sleep?level=2\",\"headers\":{\"Authorization\":\"Bearer token-abc123\"},\"body\":{}}</tool_arguments>\n</tool_call>",
+    "expected_tools": [
+      {
+        "name": "http.post",
+        "arguments": {
+          "url": "https://vllm.sir-alfred.io/sleep?level=2",
+          "headers": {
+            "Authorization": "Bearer token-abc123"
+          },
+          "body": {}
+        }
+      }
+    ]
+  },
+  {
+    "id": "20",
+    "description": "Spurious outer wrapper element around tool_call",
+    "model_output_xml": "<response>\n  <meta>ignored</meta>\n  <tool_call>\n    <tool_name>k8s.annotate</tool_name>\n    <tool_arguments>{\"namespace\":\"ai-apps\",\"deployment\":\"vllm\",\"annotation\":\"last-activity\",\"value\":\"now\"}</tool_arguments>\n  </tool_call>\n</response>",
+    "expected_tools": [
+      {
+        "name": "k8s.annotate",
+        "arguments": {
+          "namespace": "ai-apps",
+          "deployment": "vllm",
+          "annotation": "last-activity",
+          "value": "now"
+        }
+      }
+    ]
+  }
+]

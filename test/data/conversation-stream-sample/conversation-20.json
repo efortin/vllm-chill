@@ -1,0 +1,52 @@
+{
+  "title": "Put vLLM to sleep level 2",
+  "model": "qwen3-coder-30b-fp8",
+  "generate_stream": [
+    {
+      "data": "{\"id\": \"chatcmpl-139b47acb9b6fec3b1687a6e717e2432\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"Working on your request...\\n\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-139b47acb9b6fec3b1687a6e717e2432\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"Preparing tool call...\\n\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-139b47acb9b6fec3b1687a6e717e2432\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"Stand by: \"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-139b47acb9b6fec3b1687a6e717e2432\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"<tool_call name=\\\"vllm.sleep\\\"\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-139b47acb9b6fec3b1687a6e717e2432\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"><args data-n='1'><level>2</\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-139b47acb9b6fec3b1687a6e717e2432\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"level></args></tool_call>\"}, \"logprobs\": null, \"finish_reason\": null, \"token_ids\": null}]}"
+    },
+    {
+      "data": "{\"id\": \"chatcmpl-139b47acb9b6fec3b1687a6e717e2432\", \"object\": \"chat.completion.chunk\", \"created\": 1762247516, \"model\": \"qwen3-coder-30b-fp8\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"\"}, \"logprobs\": null, \"finish_reason\": \"stop\", \"stop_reason\": null, \"token_ids\": null}]}"
+    }
+  ],
+  "expected": {
+    "id": "chatcmpl-139b47acb9b6fec3b1687a6e717e2432",
+    "object": "chat.completion",
+    "created": 1762247516,
+    "model": "qwen3-coder-30b-fp8",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "call_cb3qu5w4ukhnwezxmeitl6k5",
+              "type": "function",
+              "function": {
+                "name": "vllm.sleep",
+                "arguments": "{\"level\":2}"
+              }
+            }
+          ]
+        },
+        "finish_reason": "tool_calls"
+      }
+    ]
+  }
+}
