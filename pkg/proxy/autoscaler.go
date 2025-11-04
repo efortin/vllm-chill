@@ -37,6 +37,9 @@ type AutoScaler struct {
 	isScalingUp  bool
 	scaleUpCond  *sync.Cond
 	metrics      *MetricsRecorder
+	version      string
+	commit       string
+	buildDate    string
 }
 
 // NewAutoScaler creates a new AutoScaler instance
@@ -75,6 +78,9 @@ func NewAutoScaler(config *Config) (*AutoScaler, error) {
 		targetURL:    targetURL,
 		lastActivity: time.Now(),
 		metrics:      NewMetricsRecorder(),
+		version:      "dev",
+		commit:       "none",
+		buildDate:    "unknown",
 	}
 	as.scaleUpCond = sync.NewCond(&as.mu)
 
@@ -90,6 +96,13 @@ func NewAutoScaler(config *Config) (*AutoScaler, error) {
 	log.Printf("Loaded model configuration: %s", config.ModelID)
 
 	return as, nil
+}
+
+// SetVersion sets the version information for the autoscaler
+func (as *AutoScaler) SetVersion(version, commit, buildDate string) {
+	as.version = version
+	as.commit = commit
+	as.buildDate = buildDate
 }
 
 // getReplicas returns the current number of replicas for the deployment
@@ -295,6 +308,20 @@ func (as *AutoScaler) healthHandler(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
+// versionHandler handles version information requests
+func (as *AutoScaler) versionHandler(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	response := map[string]string{
+		"version":    as.version,
+		"commit":     as.commit,
+		"build_date": as.buildDate,
+	}
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Failed to encode version response: %v", err)
+	}
+}
+
 // startIdleChecker starts a background goroutine that checks for idle time
 func (as *AutoScaler) startIdleChecker() {
 	ticker := time.NewTicker(defaultCheckInterval)
@@ -335,7 +362,10 @@ func (as *AutoScaler) Start() error {
 
 	// Add metrics endpoint (always enabled) - use /proxy/metrics to avoid conflict with vLLM's /metrics
 	mux.Handle("/proxy/metrics", promhttp.Handler())
+	mux.HandleFunc("/proxy/version", as.versionHandler)
+
 	log.Printf("   Metrics endpoint: http://0.0.0.0:%s/proxy/metrics", as.config.Port)
+	log.Printf("   Version endpoint: http://0.0.0.0:%s/proxy/version", as.config.Port)
 
 	mux.HandleFunc("/", as.proxyHandler)
 
