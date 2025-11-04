@@ -2,7 +2,15 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
+)
+
+var (
+	version   string
+	commit    string
+	buildDate string
 )
 
 var rootCmd = &cobra.Command{
@@ -18,6 +26,15 @@ after a configurable idle timeout.`,
 // Execute runs the root command.
 func Execute() error {
 	return rootCmd.Execute()
+}
+
+// SetVersion sets the version information for the CLI.
+func SetVersion(ver, cmt, date string) {
+	rootCmd.Version = fmt.Sprintf("%s (commit: %s, built: %s)", ver, cmt, date)
+	// Also set for the serve command to pass to the proxy
+	version = ver
+	commit = cmt
+	buildDate = date
 }
 
 func init() {

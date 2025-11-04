@@ -50,6 +50,9 @@ The proxy will:
 			return err
 		}
 
+		// Set version information
+		scaler.SetVersion(version, commit, buildDate)
+
 		log.Printf("Starting vLLM AutoScaler on :%s", port)
 		log.Printf("   Target: http://%s:%s", targetHost, targetPort)
 		log.Printf("   Deployment: %s/%s", namespace, deployment)
