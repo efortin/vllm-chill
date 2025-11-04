@@ -1,0 +1,19 @@
+data: {"id":"chatcmpl-e74d0cd2952480f49ba9925b0bb8c95b","object":"chat.completion.chunk","created":1762275549,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":"ability"},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-e74d0cd2952480f49ba9925b0bb8c95b","object":"chat.completion.chunk","created":1762275549,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":".\n"},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-e74d0cd2952480f49ba9925b0bb8c95b","object":"chat.completion.chunk","created":1762275549,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"tool_calls":[{"id":"call_a0abc135757746f394ae7a04","type":"function","index":0,"function":{"name":"todo_create","arguments":""}}]},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-e74d0cd2952480f49ba9925b0bb8c95b","object":"chat.completion.chunk","created":1762275549,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{"}}]},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-e74d0cd2952480f49ba9925b0bb8c95b","object":"chat.completion.chunk","created":1762275549,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"title\": \"Analyze commit message\""}}]},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-e74d0cd2952480f49ba9925b0bb8c95b","object":"chat.completion.chunk","created":1762275549,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":", \"notes\": \"Commit hash: aa62adf0, Message: \\\"move contant to a shared place. add constant for prefix\\\"\""}}]},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-e74d0cd2952480f49ba9925b0bb8c95b","object":"chat.completion.chunk","created":1762275549,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}]},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-e74d0cd2952480f49ba9925b0bb8c95b","object":"chat.completion.chunk","created":1762275549,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":""},"logprobs":null,"finish_reason":"tool_calls","stop_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-e74d0cd2952480f49ba9925b0bb8c95b","object":"chat.completion.chunk","created":1762275549,"model":"qwen3-coder-30b-fp8","choices":[],"usage":{"prompt_tokens":15224,"total_tokens":15361,"completion_tokens":137}}
+
+data: [DONE]

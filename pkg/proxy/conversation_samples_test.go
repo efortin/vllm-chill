@@ -264,3 +264,79 @@ func TestConversationSamples_XMLParsing(t *testing.T) {
 		})
 	}
 }
+
+func TestQwenNativeStreamingToolCalls(t *testing.T) {
+	// Load the sample Qwen native streaming tool call data
+	data, err := os.ReadFile("../../test/data/qwen-native-streaming-tool-call.txt")
+	require.NoError(t, err, "Failed to read qwen-native-streaming-tool-call.txt")
+
+	// Create a test HTTP response recorder
+	recorder := httptest.NewRecorder()
+	rw := newResponseWriter(recorder, true)
+
+	// Write the streaming data
+	_, err = rw.Write(data)
+	require.NoError(t, err, "Failed to write streaming data")
+
+	// Parse the result to verify tool calls were accumulated
+	result := recorder.Body.String()
+	t.Logf("Result length: %d bytes", len(result))
+
+	// Verify tool calls are present in the output
+	assert.Contains(t, result, "tool_calls", "Should contain tool_calls")
+	assert.Contains(t, result, "todo_create", "Should contain function name")
+
+	// Parse all chunks and verify the accumulated tool call
+	lines := strings.Split(result, "\n")
+	var accumulatedArgs strings.Builder
+	var funcName string
+
+	for _, line := range lines {
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		jsonData := strings.TrimPrefix(line, "data: ")
+		if jsonData == "[DONE]" {
+			continue
+		}
+
+		var chunk map[string]interface{}
+		if err := json.Unmarshal([]byte(jsonData), &chunk); err != nil {
+			continue
+		}
+
+		if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
+			if choice, ok := choices[0].(map[string]interface{}); ok {
+				if delta, ok := choice["delta"].(map[string]interface{}); ok {
+					if toolCalls, ok := delta["tool_calls"].([]interface{}); ok && len(toolCalls) > 0 {
+						if tc, ok := toolCalls[0].(map[string]interface{}); ok {
+							if function, ok := tc["function"].(map[string]interface{}); ok {
+								if name, ok := function["name"].(string); ok && name != "" {
+									funcName = name
+								}
+								if args, ok := function["arguments"].(string); ok && args != "" {
+									accumulatedArgs.WriteString(args)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Verify accumulated tool call
+	assert.Equal(t, "todo_create", funcName, "Function name should match")
+
+	finalArgs := accumulatedArgs.String()
+	t.Logf("Accumulated arguments: %s", finalArgs)
+
+	// Verify the arguments are valid JSON
+	var args map[string]interface{}
+	err = json.Unmarshal([]byte(finalArgs), &args)
+	require.NoError(t, err, "Accumulated arguments should be valid JSON")
+
+	// Verify expected arguments
+	assert.Equal(t, "Analyze commit message", args["title"], "Title should match")
+	assert.Contains(t, args["notes"].(string), "aa62adf0", "Notes should contain commit hash")
+}
