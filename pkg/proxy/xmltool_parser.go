@@ -89,7 +89,10 @@ func parseXMLToolCalls(content string) []ToolCall {
 	return toolCalls
 }
 
-// parseParameters extracts parameters from content like "<parameter=key> value"
+// parseParameters extracts parameters from content
+// Supports both formats:
+// - <parameter=key> value (without closing tag)
+// - <parameter=key>value</parameter> (with closing tag)
 func parseParameters(content string) map[string]string {
 	params := make(map[string]string)
 	idx := 0
@@ -112,14 +115,22 @@ func parseParameters(content string) map[string]string {
 		// Extract parameter name
 		paramName := strings.TrimSpace(content[paramStart+11 : paramEnd])
 
-		// Find value (until next tag or end)
+		// Find value (until closing tag or next tag)
 		valueStart := paramEnd + 1
 		valueEnd := len(content)
 
-		// Look for next tag
-		nextTag := strings.Index(content[valueStart:], "<")
-		if nextTag != -1 {
-			valueEnd = valueStart + nextTag
+		// Look for closing </parameter> tag first
+		closingTag := "</parameter>"
+		closingIdx := strings.Index(content[valueStart:], closingTag)
+		if closingIdx != -1 {
+			// Found closing tag, use it as the end
+			valueEnd = valueStart + closingIdx
+		} else {
+			// No closing tag, look for next tag
+			nextTag := strings.Index(content[valueStart:], "<")
+			if nextTag != -1 {
+				valueEnd = valueStart + nextTag
+			}
 		}
 
 		// Extract and trim value
@@ -129,8 +140,12 @@ func parseParameters(content string) map[string]string {
 			params[paramName] = paramValue
 		}
 
-		// Move to next parameter
-		idx = paramEnd + 1
+		// Move past the closing tag if present, otherwise past the opening tag
+		if closingIdx != -1 {
+			idx = valueEnd + len(closingTag)
+		} else {
+			idx = paramEnd + 1
+		}
 	}
 
 	return params
