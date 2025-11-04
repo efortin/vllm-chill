@@ -73,7 +73,7 @@ func TestResponseWriter_StreamingXMLConversion(t *testing.T) {
 		}
 
 		// Arguments are JSON-encoded string, so path will be escaped
-		if !strings.Contains(result, `\"path\":\".\"`){
+		if !strings.Contains(result, `\"path\":\".\"`) {
 			t.Error("Expected parameter 'path':'.' in tool call arguments")
 		}
 	})
@@ -88,7 +88,7 @@ func TestResponseWriter_StreamingXMLConversion(t *testing.T) {
 		// Write all chunks at once (simulating buffered write)
 		allChunks := bytes.Join([][]byte{[]byte(strings.Join(streamingChunks, ""))}, []byte{})
 		t.Logf("Writing all %d bytes at once", len(allChunks))
-		
+
 		n, err := rw.Write(allChunks)
 		if err != nil {
 			t.Fatalf("Failed to write: %v", err)
@@ -108,11 +108,4 @@ func TestResponseWriter_StreamingXMLConversion(t *testing.T) {
 			t.Error("Found '<function=' in result - XML was not converted!")
 		}
 	})
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
