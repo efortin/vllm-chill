@@ -8,7 +8,7 @@ import (
 )
 
 func TestResponseWriter_StreamingXMLConversion(t *testing.T) {
-	// Exact format from vllm-chill logs
+	// Exact format from vllm-chill logs (WITH closing tags)
 	streamingChunks := []string{
 		`data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}],"prompt_token_ids":null}` + "\n\n",
 		`data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":"<"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
@@ -106,6 +106,67 @@ func TestResponseWriter_StreamingXMLConversion(t *testing.T) {
 
 		if strings.Contains(result, "<function=") {
 			t.Error("Found '<function=' in result - XML was not converted!")
+		}
+	})
+}
+
+func TestResponseWriter_WithoutClosingTags(t *testing.T) {
+	// Format WITHOUT closing tags (as mentioned by user)
+	streamingChunks := []string{
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}],"prompt_token_ids":null}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":"<"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":"function"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":"="},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":"ls"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":">"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":" "},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":"<"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":"parameter"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":"="},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":"path"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":">"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":" "},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":"internal"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":"/"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":"agent"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":" "},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":"</"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":"tool_call"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":">"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test2","object":"chat.completion.chunk","created":1762238668,"model":"qwen3-coder-30b-fp8","choices":[{"index":0,"delta":{"content":""},"logprobs":null,"finish_reason":"stop","stop_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: [DONE]` + "\n\n",
+	}
+
+	t.Run("without closing tags - streaming", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		rw := newResponseWriter(recorder, true)
+
+		for i, chunk := range streamingChunks {
+			_, err := rw.Write([]byte(chunk))
+			if err != nil {
+				t.Fatalf("Failed to write chunk %d: %v", i, err)
+			}
+		}
+
+		result := recorder.Body.String()
+		t.Logf("Result length: %d bytes", len(result))
+
+		if !strings.Contains(result, "tool_calls") {
+			t.Error("Expected 'tool_calls' in result - XML not converted!")
+			t.Logf("Result preview: %s", result[:min(500, len(result))])
+		}
+
+		if strings.Contains(result, "<function=") {
+			t.Error("Found '<function=' in result - XML was not converted!")
+		}
+
+		if !strings.Contains(result, `"name":"ls"`) {
+			t.Error("Expected function name 'ls' in tool call")
+		}
+
+		// Arguments are JSON-encoded string
+		if !strings.Contains(result, `\"path\":\"internal/agent\"`) {
+			t.Error("Expected parameter 'path':'internal/agent' in tool call arguments")
 		}
 	})
 }
