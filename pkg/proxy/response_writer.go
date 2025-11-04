@@ -13,18 +13,22 @@ import (
 // responseWriter wraps http.ResponseWriter to capture status code and response size
 type responseWriter struct {
 	http.ResponseWriter
-	statusCode   int
-	bytesWritten int64
-	body         *bytes.Buffer
-	captureBody  bool
+	statusCode       int
+	bytesWritten     int64
+	body             *bytes.Buffer
+	captureBody      bool
+	streamBuffer     *bytes.Buffer // Buffer for accumulating streaming chunks
+	xmlDetectionMode bool          // Track if we might be receiving XML
 }
 
 // newResponseWriter creates a new response writer wrapper
 func newResponseWriter(w http.ResponseWriter, captureBody bool) *responseWriter {
 	rw := &responseWriter{
-		ResponseWriter: w,
-		statusCode:     http.StatusOK,
-		captureBody:    captureBody,
+		ResponseWriter:   w,
+		statusCode:       http.StatusOK,
+		captureBody:      captureBody,
+		streamBuffer:     &bytes.Buffer{},
+		xmlDetectionMode: false,
 	}
 	if captureBody {
 		rw.body = &bytes.Buffer{}
@@ -41,38 +45,58 @@ func (rw *responseWriter) WriteHeader(code int) {
 
 // Write captures the response size and converts XML tool calls
 func (rw *responseWriter) Write(b []byte) (int, error) {
-	// Pass through data immediately - don't block streaming
-	// Only try to convert if we have complete XML tool calls
 	content := string(b)
-	converted := b // Default: pass through unchanged
 
-	if hasXMLToolCalls(content) && strings.Contains(content, "</tool_call>") {
-		log.Printf("[XML-PARSER] Detected complete XML tool calls in response (length: %d bytes)", len(b))
-		log.Printf("[XML-PARSER] Content preview: %s", content[:minInt(len(content), 200)])
-
-		// Only convert if we have complete XML
-		converted = convertXMLToolCallsInResponse(b)
-
-		if len(converted) != len(b) {
-			log.Printf("[XML-PARSER] Converted XML to JSON (original: %d bytes, converted: %d bytes)", len(b), len(converted))
-		}
+	// Detect if we're potentially receiving XML tool calls
+	if !rw.xmlDetectionMode && strings.Contains(content, "<function=") {
+		rw.xmlDetectionMode = true
+		log.Printf("[XML-PARSER] XML detection mode activated")
 	}
 
-	n, err := rw.ResponseWriter.Write(converted)
+	// If in XML detection mode, accumulate chunks
+	if rw.xmlDetectionMode {
+		rw.streamBuffer.Write(b)
+
+		// Check if we have a complete tool call
+		accumulated := rw.streamBuffer.String()
+		if strings.Contains(accumulated, "</tool_call>") {
+			log.Printf("[XML-PARSER] Detected complete XML tool call in accumulated buffer (length: %d bytes)", rw.streamBuffer.Len())
+
+			// Try to convert
+			converted := convertXMLToolCallsInResponse(rw.streamBuffer.Bytes())
+
+			if len(converted) != rw.streamBuffer.Len() {
+				log.Printf("[XML-PARSER] Converted XML to JSON (original: %d bytes, converted: %d bytes)", rw.streamBuffer.Len(), len(converted))
+			}
+
+			// Write the accumulated and converted data
+			n, err := rw.ResponseWriter.Write(converted)
+			rw.bytesWritten += int64(n)
+
+			if rw.captureBody {
+				rw.body.Write(converted)
+			}
+
+			// Reset buffer and detection mode
+			rw.streamBuffer.Reset()
+			rw.xmlDetectionMode = false
+
+			return len(b), err
+		}
+
+		// Not complete yet, don't write anything (buffer it)
+		return len(b), nil
+	}
+
+	// Normal passthrough (no XML detected)
+	n, err := rw.ResponseWriter.Write(b)
 	rw.bytesWritten += int64(n)
 
 	if rw.captureBody {
-		rw.body.Write(converted)
+		rw.body.Write(b)
 	}
 
-	return len(b), err // Return original length for consistency
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+	return len(b), err
 }
 
 // Hijack implements http.Hijacker
