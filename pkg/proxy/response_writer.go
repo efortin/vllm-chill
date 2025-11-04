@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // responseWriter wraps http.ResponseWriter to capture status code and response size
@@ -21,6 +22,7 @@ type responseWriter struct {
 	sseBuffer           *bytes.Buffer // Buffer for accumulating SSE chunks
 	accumulatedContent  strings.Builder
 	xmlDetectionMode    bool
+	xmlDetectionStart   time.Time                // When XML detection was activated
 	chunkBuffer         []map[string]interface{} // Store parsed chunks
 	processedChunks     int                      // Number of chunks already processed
 	toolCallsDetected   bool                     // Whether native tool calls were detected
@@ -67,9 +69,16 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 		return len(b), err
 	}
 
-	// Parse SSE chunks and extract content
+	// Parse SSE chunks in two phases:
+	// Phase 1: Accumulate all content from chunks
+	// Phase 2: Handle special cases (DONE, complete XML)
+
 	lines := strings.Split(content, "\n")
+	hasDoneMarker := false
+	newChunks := make([]map[string]interface{}, 0)
 	chunkIndex := 0
+
+	// Phase 1: Process all data lines to accumulate content
 	for _, line := range lines {
 		if !strings.HasPrefix(line, "data: ") {
 			continue
@@ -77,10 +86,11 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 
 		jsonData := strings.TrimPrefix(line, "data: ")
 		if jsonData == "[DONE]" {
+			hasDoneMarker = true
 			continue
 		}
 
-		// Skip already processed chunks
+		// Skip already processed chunks to avoid re-accumulating content
 		if chunkIndex < rw.processedChunks {
 			chunkIndex++
 			continue
@@ -112,16 +122,13 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 						accumulated := rw.accumulatedContent.String()
 						if !rw.xmlDetectionMode && strings.Contains(accumulated, "<function=") {
 							rw.xmlDetectionMode = true
-							log.Printf("[XML-PARSER] XML detection mode activated")
+							rw.xmlDetectionStart = time.Now()
+							log.Printf("[XML-PARSER] XML detection mode activated at %v", rw.xmlDetectionStart)
 						}
 					}
 				}
-			}
-		}
 
-		// Check for finish_reason indicating tool calls are complete
-		if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
-			if choice, ok := choices[0].(map[string]interface{}); ok {
+				// Check for finish_reason indicating tool calls are complete
 				if finishReason, ok := choice["finish_reason"].(string); ok && finishReason == "tool_calls" {
 					// Native tool calls are complete
 					if rw.toolCallsDetected && rw.accumulatedToolCall != nil {
@@ -137,15 +144,55 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 			}
 		}
 
-		// Store chunk for later processing
-		rw.chunkBuffer = append(rw.chunkBuffer, chunk)
-		rw.processedChunks++
+		newChunks = append(newChunks, chunk)
 		chunkIndex++
 	}
 
-	// Check if we have complete XML
+	// Update processed chunks counter and add new chunks to buffer
+	rw.processedChunks += len(newChunks)
+	rw.chunkBuffer = append(rw.chunkBuffer, newChunks...)
+
+	// Phase 2: Now check if we have complete XML or need to handle stream end
 	accumulated := rw.accumulatedContent.String()
-	if rw.xmlDetectionMode && strings.Contains(accumulated, "</tool_call>") {
+
+	// If NOT in XML detection mode, pass through new chunks immediately
+	if !rw.xmlDetectionMode {
+		// Write new chunks
+		for _, chunk := range newChunks {
+			chunkJSON, _ := json.Marshal(chunk)
+			_, err := rw.ResponseWriter.Write([]byte("data: "))
+			if err != nil {
+				return 0, err
+			}
+			_, err = rw.ResponseWriter.Write(chunkJSON)
+			if err != nil {
+				return 0, err
+			}
+			_, err = rw.ResponseWriter.Write([]byte("\n\n"))
+			if err != nil {
+				return 0, err
+			}
+		}
+
+		// Write [DONE] marker if present
+		if hasDoneMarker {
+			_, err := rw.ResponseWriter.Write([]byte("data: [DONE]\n\n"))
+			if err != nil {
+				return 0, err
+			}
+		}
+
+		rw.bytesWritten += int64(len(b))
+		if rw.captureBody {
+			rw.body.Write(b)
+		}
+		return len(b), nil
+	}
+
+	// We are in XML detection mode - handle XML processing
+
+	// Check for complete XML (with closing tag)
+	if strings.Contains(accumulated, "</tool_call>") {
 		log.Printf("[XML-PARSER] Complete XML tool call detected, converting...")
 
 		// Parse XML
@@ -170,25 +217,120 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 			rw.chunkBuffer = nil
 			rw.processedChunks = 0
 
+			// Write [DONE] marker if it was in this batch
+			if hasDoneMarker {
+				_, err = rw.ResponseWriter.Write([]byte("data: [DONE]\n\n"))
+				if err != nil {
+					return 0, err
+				}
+			}
+
 			return len(b), err
 		}
 	}
 
-	// If XML detection is active, buffer and wait for completion
-	if rw.xmlDetectionMode {
-		// Already buffered in sseBuffer and chunkBuffer, don't pass through yet
-		log.Printf("[XML-PARSER] Buffering chunks, waiting for complete XML...")
+	// Handle [DONE] marker when in XML mode
+	if hasDoneMarker {
+		// Stream is ending - check if we have complete XML that needs processing
+		if strings.Contains(accumulated, "<tool_call>") {
+			// We have XML that might be complete (even without closing tag)
+			log.Printf("[XML-PARSER] Stream ending with XML content, attempting to parse...")
+
+			// Parse XML
+			toolCalls := parseXMLToolCalls(accumulated)
+			if len(toolCalls) > 0 {
+				log.Printf("[XML-PARSER] Parsed %d tool calls from incomplete XML", len(toolCalls))
+
+				// Convert chunks to tool_calls format
+				convertedData := rw.convertChunksToToolCalls(toolCalls[0])
+
+				// Write converted data
+				n, err := rw.ResponseWriter.Write(convertedData)
+				rw.bytesWritten += int64(n)
+				if rw.captureBody {
+					rw.body.Write(convertedData)
+				}
+
+				// Reset state
+				rw.sseBuffer.Reset()
+				rw.accumulatedContent.Reset()
+				rw.xmlDetectionMode = false
+				rw.chunkBuffer = nil
+				rw.processedChunks = 0
+
+				// Write [DONE] marker after processing
+				_, err = rw.ResponseWriter.Write([]byte("data: [DONE]\n\n"))
+				if err != nil {
+					return 0, err
+				}
+
+				return len(b), err
+			}
+		}
+
+		// Stream is ending - XML mode but no valid XML, flush buffered data
+		log.Printf("[XML-PARSER] Stream ended with incomplete XML, flushing buffered data")
+		// Pass through all buffered chunks as-is
+		for _, chunk := range rw.chunkBuffer {
+			chunkJSON, _ := json.Marshal(chunk)
+			_, err := rw.ResponseWriter.Write([]byte("data: "))
+			if err != nil {
+				return 0, err
+			}
+			_, err = rw.ResponseWriter.Write(chunkJSON)
+			if err != nil {
+				return 0, err
+			}
+			_, err = rw.ResponseWriter.Write([]byte("\n\n"))
+			if err != nil {
+				return 0, err
+			}
+		}
+		// Reset state
+		rw.xmlDetectionMode = false
+		rw.chunkBuffer = nil
+		rw.processedChunks = 0
+
+		// Write [DONE] marker
+		_, err := rw.ResponseWriter.Write([]byte("data: [DONE]\n\n"))
+		if err != nil {
+			return 0, err
+		}
 		return len(b), nil
 	}
 
-	// Not XML mode - pass through original data
-	n, err := rw.ResponseWriter.Write(b)
-	rw.bytesWritten += int64(n)
-	if rw.captureBody {
-		rw.body.Write(b)
+	// If XML detection is active, buffer and wait for completion (timeout check)
+	// Check for timeout (30 seconds)
+	if time.Since(rw.xmlDetectionStart) > 30*time.Second {
+		log.Printf("[XML-PARSER] Timeout waiting for complete XML (30s), flushing incomplete data")
+		// Flush buffered chunks as-is
+		for _, chunk := range rw.chunkBuffer {
+			chunkJSON, _ := json.Marshal(chunk)
+			_, err := rw.ResponseWriter.Write([]byte("data: "))
+			if err != nil {
+				return 0, err
+			}
+			_, err = rw.ResponseWriter.Write(chunkJSON)
+			if err != nil {
+				return 0, err
+			}
+			_, err = rw.ResponseWriter.Write([]byte("\n\n"))
+			if err != nil {
+				return 0, err
+			}
+		}
+		// Reset state
+		rw.xmlDetectionMode = false
+		rw.chunkBuffer = nil
+		rw.processedChunks = 0
+		rw.sseBuffer.Reset()
+		rw.accumulatedContent.Reset()
+		return len(b), nil
 	}
 
-	return len(b), err
+	// Already buffered in sseBuffer and chunkBuffer, don't pass through yet
+	log.Printf("[XML-PARSER] Buffering chunks, waiting for complete XML... (elapsed: %v)", time.Since(rw.xmlDetectionStart))
+	return len(b), nil
 }
 
 // accumulateToolCalls accumulates tool call chunks from streaming response
