@@ -170,11 +170,11 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 		log.Printf("[XML-PARSER] Failed to parse XML, flushing %d buffered chunks", len(rw.chunkBuffer))
 		for _, chunk := range rw.chunkBuffer {
 			chunkJSON, _ := json.Marshal(chunk)
-			rw.ResponseWriter.Write([]byte("data: "))
-			rw.ResponseWriter.Write(chunkJSON)
-			rw.ResponseWriter.Write([]byte("\n\n"))
+			_, _ = rw.ResponseWriter.Write([]byte("data: "))
+			_, _ = rw.ResponseWriter.Write(chunkJSON)
+			_, _ = rw.ResponseWriter.Write([]byte("\n\n"))
 		}
-		rw.ResponseWriter.Write([]byte("data: [DONE]\n\n"))
+		_, _ = rw.ResponseWriter.Write([]byte("data: [DONE]\n\n"))
 
 		// Reset state
 		rw.xmlDetectionMode = false
