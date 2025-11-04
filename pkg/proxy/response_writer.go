@@ -9,22 +9,22 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // responseWriter wraps http.ResponseWriter to capture status code and response size
 type responseWriter struct {
 	http.ResponseWriter
-	statusCode          int
-	bytesWritten        int64
-	body                *bytes.Buffer
-	captureBody         bool
-	sseBuffer           *bytes.Buffer // Buffer for accumulating SSE chunks
-	accumulatedContent  strings.Builder
-	xmlDetectionMode    bool
-	chunkBuffer         []map[string]interface{} // Store parsed chunks
-	processedChunks     int                      // Number of chunks already processed
-	toolCallsDetected   bool                     // Whether native tool calls were detected
-	accumulatedToolCall map[string]interface{}   // Accumulated tool call from streaming chunks
+	statusCode         int
+	bytesWritten       int64
+	body               *bytes.Buffer
+	captureBody        bool
+	sseBuffer          *bytes.Buffer // Buffer for accumulating SSE chunks
+	accumulatedContent strings.Builder
+	xmlDetectionMode   bool
+	xmlDetectionStart  time.Time                // When XML detection was activated
+	chunkBuffer        []map[string]interface{} // Store parsed chunks for template
+	toolCallsDetected  bool                     // Whether native tool calls were detected
 }
 
 // newResponseWriter creates a new response writer wrapper
@@ -67,9 +67,10 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 		return len(b), err
 	}
 
-	// Parse SSE chunks and extract content
-	lines := strings.Split(content, "\n")
-	chunkIndex := 0
+	// Parse only NEW SSE chunks (everything in current write)
+	lines := strings.Split(string(b), "\n")
+	hasDoneMarker := false
+
 	for _, line := range lines {
 		if !strings.HasPrefix(line, "data: ") {
 			continue
@@ -77,12 +78,7 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 
 		jsonData := strings.TrimPrefix(line, "data: ")
 		if jsonData == "[DONE]" {
-			continue
-		}
-
-		// Skip already processed chunks
-		if chunkIndex < rw.processedChunks {
-			chunkIndex++
+			hasDoneMarker = true
 			continue
 		}
 
@@ -95,72 +91,70 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 		if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
 			if choice, ok := choices[0].(map[string]interface{}); ok {
 				if delta, ok := choice["delta"].(map[string]interface{}); ok {
-					// Check for native tool calls
+					// Check for native tool calls (pass through immediately)
 					if toolCalls, ok := delta["tool_calls"].([]interface{}); ok && len(toolCalls) > 0 {
 						if !rw.toolCallsDetected {
 							rw.toolCallsDetected = true
-							log.Printf("[TOOL-CALLS] Native tool calls detected in streaming response")
+							log.Printf("[TOOL-CALLS] Native tool calls detected - passing through")
 						}
-						rw.accumulateToolCalls(toolCalls)
 					}
 
 					// Extract text content
 					if deltaContent, ok := delta["content"].(string); ok && deltaContent != "" {
 						rw.accumulatedContent.WriteString(deltaContent)
 
-						// Detect XML
-						accumulated := rw.accumulatedContent.String()
-						if !rw.xmlDetectionMode && strings.Contains(accumulated, "<function=") {
+						// Detect XML mode
+						if !rw.xmlDetectionMode && strings.Contains(rw.accumulatedContent.String(), "<function=") {
 							rw.xmlDetectionMode = true
-							log.Printf("[XML-PARSER] XML detection mode activated")
+							rw.xmlDetectionStart = time.Now()
+							log.Printf("[XML-PARSER] XML detection mode activated - buffering until [DONE]")
 						}
 					}
 				}
 			}
 		}
 
-		// Check for finish_reason indicating tool calls are complete
-		if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
-			if choice, ok := choices[0].(map[string]interface{}); ok {
-				if finishReason, ok := choice["finish_reason"].(string); ok && finishReason == "tool_calls" {
-					// Native tool calls are complete
-					if rw.toolCallsDetected && rw.accumulatedToolCall != nil {
-						log.Printf("[TOOL-CALLS] Complete native tool call detected")
-						// Log the complete tool call for debugging
-						if function, ok := rw.accumulatedToolCall["function"].(map[string]interface{}); ok {
-							funcName, _ := function["name"].(string)
-							funcArgs, _ := function["arguments"].(string)
-							log.Printf("[TOOL-CALLS] Function: %s, Arguments: %s", funcName, funcArgs)
-						}
-					}
-				}
-			}
+		// Store chunk for potential conversion (keep only first chunk for template)
+		if len(rw.chunkBuffer) == 0 {
+			rw.chunkBuffer = append(rw.chunkBuffer, chunk)
 		}
-
-		// Store chunk for later processing
-		rw.chunkBuffer = append(rw.chunkBuffer, chunk)
-		rw.processedChunks++
-		chunkIndex++
 	}
 
-	// Check if we have complete XML
-	accumulated := rw.accumulatedContent.String()
-	if rw.xmlDetectionMode && strings.Contains(accumulated, "</tool_call>") {
-		log.Printf("[XML-PARSER] Complete XML tool call detected, converting...")
+	// If we detected XML and stream is done, convert to single tool call response
+	if rw.xmlDetectionMode && hasDoneMarker {
+		accumulated := rw.accumulatedContent.String()
+		log.Printf("[XML-PARSER] Stream complete, parsing XML (length: %d)", len(accumulated))
 
-		// Parse XML
 		toolCalls := parseXMLToolCalls(accumulated)
 		if len(toolCalls) > 0 {
-			log.Printf("[XML-PARSER] Parsed %d tool calls", len(toolCalls))
+			log.Printf("[XML-PARSER] Successfully parsed %d tool calls, sending as single SSE chunk", len(toolCalls))
 
-			// Convert chunks to tool_calls format
-			convertedData := rw.convertChunksToToolCalls(toolCalls[0])
+			// Build a single SSE chunk with the complete tool call
+			singleChunk := rw.buildSingleToolCallChunk(toolCalls[0])
 
-			// Write converted data
-			n, err := rw.ResponseWriter.Write(convertedData)
-			rw.bytesWritten += int64(n)
+			// Write the single chunk
+			_, err := rw.ResponseWriter.Write([]byte("data: "))
+			if err != nil {
+				return 0, err
+			}
+			_, err = rw.ResponseWriter.Write(singleChunk)
+			if err != nil {
+				return 0, err
+			}
+			_, err = rw.ResponseWriter.Write([]byte("\n\n"))
+			if err != nil {
+				return 0, err
+			}
+
+			// Write [DONE] marker
+			_, err = rw.ResponseWriter.Write([]byte("data: [DONE]\n\n"))
+			if err != nil {
+				return 0, err
+			}
+
+			rw.bytesWritten += int64(len(singleChunk) + 20)
 			if rw.captureBody {
-				rw.body.Write(convertedData)
+				rw.body.Write(singleChunk)
 			}
 
 			// Reset state
@@ -168,121 +162,88 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 			rw.accumulatedContent.Reset()
 			rw.xmlDetectionMode = false
 			rw.chunkBuffer = nil
-			rw.processedChunks = 0
 
-			return len(b), err
+			return len(b), nil
 		}
-	}
 
-	// If XML detection is active, buffer and wait for completion
-	if rw.xmlDetectionMode {
-		// Already buffered in sseBuffer and chunkBuffer, don't pass through yet
-		log.Printf("[XML-PARSER] Buffering chunks, waiting for complete XML...")
+		// XML parsing failed, flush buffered chunks as-is
+		log.Printf("[XML-PARSER] Failed to parse XML, flushing %d buffered chunks", len(rw.chunkBuffer))
+		for _, chunk := range rw.chunkBuffer {
+			chunkJSON, _ := json.Marshal(chunk)
+			_, _ = rw.ResponseWriter.Write([]byte("data: "))
+			_, _ = rw.ResponseWriter.Write(chunkJSON)
+			_, _ = rw.ResponseWriter.Write([]byte("\n\n"))
+		}
+		_, _ = rw.ResponseWriter.Write([]byte("data: [DONE]\n\n"))
+
+		// Reset state
+		rw.xmlDetectionMode = false
+		rw.chunkBuffer = nil
+		rw.sseBuffer.Reset()
+		rw.accumulatedContent.Reset()
 		return len(b), nil
 	}
 
-	// Not XML mode - pass through original data
-	n, err := rw.ResponseWriter.Write(b)
-	rw.bytesWritten += int64(n)
-	if rw.captureBody {
-		rw.body.Write(b)
+	// If NOT in XML mode, pass through immediately
+	if !rw.xmlDetectionMode {
+		n, err := rw.ResponseWriter.Write(b)
+		rw.bytesWritten += int64(n)
+		if rw.captureBody {
+			rw.body.Write(b)
+		}
+		return len(b), err
 	}
 
-	return len(b), err
+	// XML mode active, buffering until [DONE]
+	log.Printf("[XML-PARSER] Buffering chunks... (elapsed: %v)", time.Since(rw.xmlDetectionStart))
+	return len(b), nil
 }
 
-// accumulateToolCalls accumulates tool call chunks from streaming response
-func (rw *responseWriter) accumulateToolCalls(toolCalls []interface{}) {
-	for _, tc := range toolCalls {
-		toolCallMap, ok := tc.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		// Initialize accumulated tool call if needed
-		if rw.accumulatedToolCall == nil {
-			rw.accumulatedToolCall = make(map[string]interface{})
-		}
-
-		// Accumulate ID
-		if id, ok := toolCallMap["id"].(string); ok && id != "" {
-			rw.accumulatedToolCall["id"] = id
-		}
-
-		// Accumulate type
-		if typ, ok := toolCallMap["type"].(string); ok && typ != "" {
-			rw.accumulatedToolCall["type"] = typ
-		}
-
-		// Accumulate index
-		if idx, ok := toolCallMap["index"].(float64); ok {
-			rw.accumulatedToolCall["index"] = idx
-		}
-
-		// Accumulate function details
-		if function, ok := toolCallMap["function"].(map[string]interface{}); ok {
-			accFunc, _ := rw.accumulatedToolCall["function"].(map[string]interface{})
-			if accFunc == nil {
-				accFunc = make(map[string]interface{})
-				rw.accumulatedToolCall["function"] = accFunc
-			}
-
-			// Accumulate function name
-			if name, ok := function["name"].(string); ok && name != "" {
-				accFunc["name"] = name
-			}
-
-			// Accumulate function arguments (streaming)
-			if args, ok := function["arguments"].(string); ok && args != "" {
-				existingArgs, _ := accFunc["arguments"].(string)
-				accFunc["arguments"] = existingArgs + args
-			}
+// buildSingleToolCallChunk builds a single SSE chunk with the complete tool call
+func (rw *responseWriter) buildSingleToolCallChunk(toolCall ToolCall) []byte {
+	// Use the first chunk as template (to get id, model, created, etc.)
+	var templateChunk map[string]interface{}
+	if len(rw.chunkBuffer) > 0 {
+		templateChunk = rw.chunkBuffer[0]
+	} else {
+		// Fallback: create minimal chunk
+		templateChunk = map[string]interface{}{
+			"id":      "chatcmpl-" + toolCall.ID,
+			"object":  "chat.completion.chunk",
+			"created": time.Now().Unix(),
+			"model":   "unknown",
 		}
 	}
-}
 
-// convertChunksToToolCalls converts accumulated chunks to tool_calls format
-func (rw *responseWriter) convertChunksToToolCalls(toolCall ToolCall) []byte {
-	var result bytes.Buffer
-
-	// Find the first chunk with content and replace it with tool_calls
-	foundContent := false
-	for _, chunk := range rw.chunkBuffer {
-		if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
-			if choice, ok := choices[0].(map[string]interface{}); ok {
-				if delta, ok := choice["delta"].(map[string]interface{}); ok {
-					if !foundContent {
-						// First chunk with content - replace with tool_calls
-						delete(delta, "content")
-						delta["tool_calls"] = []map[string]interface{}{
-							{
-								"index": 0,
-								"id":    toolCall.ID,
-								"type":  toolCall.Type,
-								"function": map[string]interface{}{
-									"name":      toolCall.Function.Name,
-									"arguments": toolCall.Function.Arguments,
-								},
-							},
-						}
-						foundContent = true
-					} else {
-						// Subsequent chunks - remove content
-						delete(delta, "content")
-					}
-				}
-			}
-		}
-
-		// Re-encode chunk
-		chunkJSON, _ := json.Marshal(chunk)
-		result.WriteString("data: ")
-		result.Write(chunkJSON)
-		result.WriteString("\n\n")
+	// Build the complete tool call chunk
+	chunk := make(map[string]interface{})
+	for k, v := range templateChunk {
+		chunk[k] = v
 	}
 
-	log.Printf("[XML-PARSER] Converted XML to JSON tool calls")
-	return result.Bytes()
+	// Set the delta with complete tool call
+	chunk["choices"] = []map[string]interface{}{
+		{
+			"index": 0,
+			"delta": map[string]interface{}{
+				"tool_calls": []map[string]interface{}{
+					{
+						"index": 0,
+						"id":    toolCall.ID,
+						"type":  toolCall.Type,
+						"function": map[string]interface{}{
+							"name":      toolCall.Function.Name,
+							"arguments": toolCall.Function.Arguments,
+						},
+					},
+				},
+			},
+			"finish_reason": "tool_calls",
+		},
+	}
+
+	chunkJSON, _ := json.Marshal(chunk)
+	return chunkJSON
 }
 
 // Hijack implements http.Hijacker
