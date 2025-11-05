@@ -96,6 +96,14 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 						if !rw.toolCallsDetected {
 							rw.toolCallsDetected = true
 							log.Printf("[TOOL-CALLS] Native tool calls detected - passing through")
+
+							// If we had XML mode active, cancel it since native tool calls are being used
+							if rw.xmlDetectionMode {
+								log.Printf("[TOOL-CALLS] Canceling XML mode - native tool calls detected")
+								rw.xmlDetectionMode = false
+								rw.accumulatedContent.Reset()
+								rw.chunkBuffer = nil
+							}
 						}
 					}
 
@@ -103,11 +111,19 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 					if deltaContent, ok := delta["content"].(string); ok && deltaContent != "" {
 						rw.accumulatedContent.WriteString(deltaContent)
 
-						// Detect XML mode
-						if !rw.xmlDetectionMode && strings.Contains(rw.accumulatedContent.String(), "<function=") {
-							rw.xmlDetectionMode = true
-							rw.xmlDetectionStart = time.Now()
-							log.Printf("[XML-PARSER] XML detection mode activated - buffering until [DONE]")
+						accumulated := rw.accumulatedContent.String()
+						// Detect XML mode - check for various XML tool call patterns
+						if !rw.xmlDetectionMode && !rw.toolCallsDetected {
+							// Detect complete or incomplete XML tool call patterns
+							if strings.Contains(accumulated, "<function=") ||
+								strings.Contains(accumulated, "<tool_call") ||
+								strings.Contains(accumulated, "<function_call") ||
+								// Also detect incomplete fragments that might be XML
+								(strings.Contains(accumulated, "<function") && !strings.Contains(accumulated, "function>")) {
+								rw.xmlDetectionMode = true
+								rw.xmlDetectionStart = time.Now()
+								log.Printf("[XML-PARSER] XML detection mode activated - buffering until [DONE]")
+							}
 						}
 					}
 				}
