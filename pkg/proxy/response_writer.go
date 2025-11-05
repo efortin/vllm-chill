@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -96,6 +97,14 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 						if !rw.toolCallsDetected {
 							rw.toolCallsDetected = true
 							log.Printf("[TOOL-CALLS] Native tool calls detected - passing through")
+
+							// If we had XML mode active, cancel it since native tool calls are being used
+							if rw.xmlDetectionMode {
+								log.Printf("[TOOL-CALLS] Canceling XML mode - native tool calls detected")
+								rw.xmlDetectionMode = false
+								rw.accumulatedContent.Reset()
+								rw.chunkBuffer = nil
+							}
 						}
 					}
 
@@ -103,11 +112,15 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 					if deltaContent, ok := delta["content"].(string); ok && deltaContent != "" {
 						rw.accumulatedContent.WriteString(deltaContent)
 
-						// Detect XML mode
-						if !rw.xmlDetectionMode && strings.Contains(rw.accumulatedContent.String(), "<function=") {
-							rw.xmlDetectionMode = true
-							rw.xmlDetectionStart = time.Now()
-							log.Printf("[XML-PARSER] XML detection mode activated - buffering until [DONE]")
+						accumulated := rw.accumulatedContent.String()
+						// Detect XML mode - check for various XML tool call patterns
+						// Only trigger on complete XML tag patterns, not on random < characters
+						if !rw.xmlDetectionMode && !rw.toolCallsDetected {
+							if isXMLToolCall(accumulated) {
+								rw.xmlDetectionMode = true
+								rw.xmlDetectionStart = time.Now()
+								log.Printf("[XML-PARSER] XML detection mode activated - buffering until [DONE]")
+							}
 						}
 					}
 				}
@@ -300,4 +313,27 @@ func (br *bodyReader) Read(p []byte) (int, error) {
 // BytesRead returns the total number of bytes read
 func (br *bodyReader) BytesRead() int64 {
 	return br.bytesRead
+}
+
+// isXMLToolCall checks if the text contains a complete XML tool call tag
+// This uses regex to ensure we have a complete tag opening, not just a fragment
+func isXMLToolCall(text string) bool {
+	// Pattern 1: <tool_call> or <tool_call ...> (with space or >)
+	// This prevents matching incomplete patterns like "<tool_callable"
+	if matched, _ := regexp.MatchString(`<tool_call[\s>]`, text); matched {
+		return true
+	}
+
+	// Pattern 2: <function_call> or <function_call ...>
+	if matched, _ := regexp.MatchString(`<function_call[\s>]`, text); matched {
+		return true
+	}
+
+	// Pattern 3: Legacy format <function=name>
+	// This already requires = so it's specific enough
+	if strings.Contains(text, "<function=") {
+		return true
+	}
+
+	return false
 }

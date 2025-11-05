@@ -402,3 +402,64 @@ func TestXMLToolParser_WrapperElement(t *testing.T) {
 	require.Len(t, toolCalls, 1)
 	assert.Equal(t, "k8s.annotate", toolCalls[0].Function.Name)
 }
+
+// TestXMLToolParser_PlainLessThanCharacter tests that plain < character doesn't trigger XML parsing
+func TestXMLToolParser_PlainLessThanCharacter(t *testing.T) {
+	// Simulates a response like "ls\n<" where < is just a shell prompt character, not XML
+	text := `ls
+
+<`
+
+	toolCalls := parseXMLToolCalls(text)
+
+	// Should not parse any tool calls from plain text with just a < character
+	require.Len(t, toolCalls, 0)
+}
+
+// TestXMLToolParser_IncompleteFunctionTag tests that incomplete <function pattern doesn't trigger
+func TestXMLToolParser_IncompleteFunctionTag(t *testing.T) {
+	// Simulates text that contains "<function" but isn't actually a tool call
+	text := `The <function should not trigger parsing`
+
+	toolCalls := parseXMLToolCalls(text)
+
+	// Should not parse any tool calls from incomplete patterns
+	require.Len(t, toolCalls, 0)
+}
+
+// TestXMLToolParser_SimilarButNotToolCall tests patterns that look like tool calls but aren't
+func TestXMLToolParser_SimilarButNotToolCall(t *testing.T) {
+	testCases := []struct {
+		name string
+		text string
+	}{
+		{
+			name: "tool_callable interface",
+			text: `The <tool_callable interface provides methods`,
+		},
+		{
+			name: "tool_call_name variable",
+			text: `Using <tool_call_name> as a variable name`,
+		},
+		{
+			name: "function_calling library",
+			text: `Import the <function_calling library`,
+		},
+		{
+			name: "less than comparison",
+			text: `If x < tool_call then return`,
+		},
+		{
+			name: "multiple less than",
+			text: `< < <tool_call`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			toolCalls := parseXMLToolCalls(tc.text)
+			// These should not parse as tool calls
+			assert.Len(t, toolCalls, 0, "Text '%s' should not be detected as a tool call", tc.text)
+		})
+	}
+}
