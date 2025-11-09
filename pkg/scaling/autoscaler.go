@@ -84,7 +84,7 @@ func NewK8sAutoScaler(clientset *kubernetes.Clientset, config Config) *K8sAutoSc
 		config.CheckInterval = DefaultCheckInterval
 	}
 	if config.MinReplicas == 0 {
-		config.MinReplicas = 0
+		config.MinReplicas = 1
 	}
 	if config.MaxReplicas == 0 {
 		config.MaxReplicas = 1
