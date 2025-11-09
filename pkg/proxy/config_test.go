@@ -1,157 +1,132 @@
-package proxy_test
+package proxy
 
 import (
+	"testing"
 	"time"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-
-	"github.com/efortin/vllm-chill/pkg/proxy"
+	"github.com/stretchr/testify/assert"
 )
 
-var _ = Describe("Config", func() {
-	Describe("Validate", func() {
-		DescribeTable("validation tests",
-			func(config *proxy.Config, expectError bool) {
-				err := config.Validate()
-				if expectError {
-					Expect(err).To(HaveOccurred())
-				} else {
-					Expect(err).NotTo(HaveOccurred())
-				}
+func TestConfigValidate(t *testing.T) {
+	tests := []struct {
+		name        string
+		config      Config
+		expectError bool
+	}{
+		{
+			name: "valid config",
+			config: Config{
+				Namespace:     "test-ns",
+				Deployment:    "test-deployment",
+				ConfigMapName: "test-configmap",
+				IdleTimeout:   "5m",
+				Port:          "8080",
+				ModelID:       "test-model",
 			},
-			Entry("all fields set correctly",
-				&proxy.Config{
-					Namespace:     "ai-apps",
-					Deployment:    "vllm-deployment",
-					ConfigMapName: "vllm-config",
-					TargetHost:    "vllm-service.ai-apps.svc.cluster.local",
-					TargetPort:    "8000",
-					IdleTimeout:   "10m",
-					Port:          "9090",
-					ModelID:       "test-model",
-				},
-				false,
-			),
-			Entry("empty namespace",
-				&proxy.Config{
-					Namespace:     "",
-					Deployment:    "vllm-deployment",
-					ConfigMapName: "vllm-config",
-					TargetHost:    "vllm-service.ai-apps.svc.cluster.local",
-					TargetPort:    "8000",
-					IdleTimeout:   "10m",
-					Port:          "9090",
-					ModelID:       "test-model",
-				},
-				true,
-			),
-			Entry("empty deployment",
-				&proxy.Config{
-					Namespace:     "ai-apps",
-					Deployment:    "",
-					ConfigMapName: "vllm-config",
-					TargetHost:    "vllm-service.ai-apps.svc.cluster.local",
-					TargetPort:    "8000",
-					IdleTimeout:   "10m",
-					Port:          "9090",
-					ModelID:       "test-model",
-				},
-				true,
-			),
-			Entry("empty configmap name",
-				&proxy.Config{
-					Namespace:     "ai-apps",
-					Deployment:    "vllm-deployment",
-					ConfigMapName: "",
-					TargetHost:    "vllm-service.ai-apps.svc.cluster.local",
-					TargetPort:    "8000",
-					IdleTimeout:   "10m",
-					Port:          "9090",
-					ModelID:       "test-model",
-				},
-				true,
-			),
-			Entry("empty target host",
-				&proxy.Config{
-					Namespace:     "ai-apps",
-					Deployment:    "vllm-deployment",
-					ConfigMapName: "vllm-config",
-					TargetHost:    "",
-					TargetPort:    "8000",
-					IdleTimeout:   "10m",
-					Port:          "9090",
-					ModelID:       "test-model",
-				},
-				true,
-			),
-			Entry("empty target port",
-				&proxy.Config{
-					Namespace:     "ai-apps",
-					Deployment:    "vllm-deployment",
-					ConfigMapName: "vllm-config",
-					TargetHost:    "vllm-service.ai-apps.svc.cluster.local",
-					TargetPort:    "",
-					IdleTimeout:   "10m",
-					Port:          "9090",
-					ModelID:       "test-model",
-				},
-				true,
-			),
-			Entry("invalid idle timeout",
-				&proxy.Config{
-					Namespace:     "ai-apps",
-					Deployment:    "vllm-deployment",
-					ConfigMapName: "vllm-config",
-					TargetHost:    "vllm-service.ai-apps.svc.cluster.local",
-					TargetPort:    "8000",
-					IdleTimeout:   "invalid",
-					Port:          "9090",
-					ModelID:       "test-model",
-				},
-				true,
-			),
-			Entry("empty model ID",
-				&proxy.Config{
-					Namespace:     "ai-apps",
-					Deployment:    "vllm-deployment",
-					ConfigMapName: "vllm-config",
-					TargetHost:    "vllm-service.ai-apps.svc.cluster.local",
-					TargetPort:    "8000",
-					IdleTimeout:   "10m",
-					Port:          "9090",
-					ModelID:       "",
-				},
-				true,
-			),
-		)
-	})
+			expectError: false,
+		},
+		{
+			name: "empty namespace",
+			config: Config{
+				Namespace:     "",
+				Deployment:    "test-deployment",
+				ConfigMapName: "test-configmap",
+				IdleTimeout:   "5m",
+				Port:          "8080",
+				ModelID:       "test-model",
+			},
+			expectError: true,
+		},
+		{
+			name: "empty deployment",
+			config: Config{
+				Namespace:     "test-ns",
+				Deployment:    "",
+				ConfigMapName: "test-configmap",
+				IdleTimeout:   "5m",
+				Port:          "8080",
+				ModelID:       "test-model",
+			},
+			expectError: true,
+		},
+		{
+			name: "empty configmap",
+			config: Config{
+				Namespace:     "test-ns",
+				Deployment:    "test-deployment",
+				ConfigMapName: "",
+				IdleTimeout:   "5m",
+				Port:          "8080",
+				ModelID:       "test-model",
+			},
+			expectError: true,
+		},
+		{
+			name: "invalid idle timeout",
+			config: Config{
+				Namespace:     "test-ns",
+				Deployment:    "test-deployment",
+				ConfigMapName: "test-configmap",
+				IdleTimeout:   "invalid",
+				Port:          "8080",
+				ModelID:       "test-model",
+			},
+			expectError: true,
+		},
+		{
+			name: "empty model ID",
+			config: Config{
+				Namespace:     "test-ns",
+				Deployment:    "test-deployment",
+				ConfigMapName: "test-configmap",
+				IdleTimeout:   "5m",
+				Port:          "8080",
+				ModelID:       "",
+			},
+			expectError: true,
+		},
+	}
 
-	Describe("GetIdleTimeout", func() {
-		DescribeTable("timeout parsing tests",
-			func(idleTimeout string, expected time.Duration) {
-				config := &proxy.Config{IdleTimeout: idleTimeout}
-				result := config.GetIdleTimeout()
-				Expect(result).To(Equal(expected))
-			},
-			Entry("valid timeout", "5m", 5*time.Minute),
-			Entry("zero timeout", "0s", time.Duration(0)),
-			Entry("custom timeout", "1h30m", time.Hour+30*time.Minute),
-		)
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
 
-	Describe("GetTargetURL", func() {
-		DescribeTable("URL generation tests",
-			func(host, port, expected string) {
-				config := &proxy.Config{
-					TargetHost: host,
-					TargetPort: port,
-				}
-				result := config.GetTargetURL()
-				Expect(result).To(Equal(expected))
-			},
-			Entry("standard case", "localhost", "8080", "http://localhost:8080"),
-			Entry("different host and port", "api.example.com", "443", "http://api.example.com:443"),
-		)
-	})
-})
+func TestConfigGetIdleTimeout(t *testing.T) {
+	tests := []struct {
+		name     string
+		timeout  string
+		expected time.Duration
+	}{
+		{
+			name:     "5 minutes",
+			timeout:  "5m",
+			expected: 5 * time.Minute,
+		},
+		{
+			name:     "10 seconds",
+			timeout:  "10s",
+			expected: 10 * time.Second,
+		},
+		{
+			name:     "1 hour",
+			timeout:  "1h",
+			expected: 1 * time.Hour,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := Config{IdleTimeout: tt.timeout}
+			result := config.GetIdleTimeout()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

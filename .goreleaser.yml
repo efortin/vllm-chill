@@ -10,7 +10,7 @@ builds:
     main: ./cmd/autoscaler
     binary: vllm-chill
     env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
     goos:
       - linux
     goarch:

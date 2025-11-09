@@ -1,4 +1,15 @@
 ---
+# Secret for vLLM API key (shared between vllm-chill and vLLM pods)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vllm-api-key
+  namespace: vllm
+type: Opaque
+stringData:
+  api-key: "token-abc123"  # Change this to a secure random token
+
+---
 # ConfigMap for vLLM model configuration
 apiVersion: v1
 kind: ConfigMap
@@ -14,8 +25,10 @@ data:
   TOOL_CALL_PARSER: "qwen3_coder"
   REASONING_PARSER: ""
 
+  # GPU configuration
+  GPU_COUNT: "2"  # Number of GPUs to use (controls tensor-parallel-size and resource limits)
+
   # vLLM runtime parameters
-  TENSOR_PARALLEL_SIZE: "2"
   MAX_MODEL_LEN: "65536"
   GPU_MEMORY_UTILIZATION: "0.91"
   ENABLE_CHUNKED_PREFILL: "true"
@@ -125,14 +138,21 @@ spec:
         args:
           - serve
         env:
+          - name: VLLM_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: vllm-api-key
+                key: api-key
           - name: VLLM_NAMESPACE
             value: "vllm"
           - name: VLLM_DEPLOYMENT
             value: "vllm"
           - name: VLLM_CONFIGMAP
             value: "vllm-config"
+          - name: VLLM_SOCKET
+            value: ""
           - name: VLLM_TARGET
-            value: "vllm-svc"
+            value: "vllm-api"
           - name: VLLM_PORT
             value: "80"
           - name: MODEL_ID

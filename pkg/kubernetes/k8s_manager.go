@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -28,7 +27,8 @@ func NewK8sManager(clientset kubernetes.Interface, config *Config) *K8sManager {
 	}
 }
 
-// EnsureVLLMResources ensures the vLLM deployment, service, and configmap exist
+// EnsureVLLMResources ensures the vLLM service and configmap exist
+// Note: Pod is created on demand, not at startup
 func (m *K8sManager) EnsureVLLMResources(ctx context.Context, initialModel *ModelConfig) error {
 	// Ensure ConfigMap exists
 	if err := m.ensureConfigMap(ctx, initialModel); err != nil {
@@ -40,10 +40,8 @@ func (m *K8sManager) EnsureVLLMResources(ctx context.Context, initialModel *Mode
 		return fmt.Errorf("failed to ensure service: %w", err)
 	}
 
-	// Ensure Deployment exists
-	if err := m.ensureDeployment(ctx, initialModel); err != nil {
-		return fmt.Errorf("failed to ensure deployment: %w", err)
-	}
+	// Note: We don't create the pod here - it will be created on first request
+	log.Printf("K8s resources initialized (pod will be created on demand)")
 
 	return nil
 }
@@ -87,10 +85,9 @@ func (m *K8sManager) ensureConfigMap(ctx context.Context, modelConfig *ModelConf
 }
 
 // ensureService creates the vLLM service if it doesn't exist
-// Note: In sidecar mode with Unix sockets, this service is not used for communication
-// but kept for pod discovery and compatibility
+// Note: Service name must NOT be "vllm" to avoid K8s env var conflicts (VLLM_SERVICE_HOST, etc.)
 func (m *K8sManager) ensureService(ctx context.Context) error {
-	serviceName := "vllm"
+	serviceName := "vllm-api"
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      serviceName,
@@ -141,11 +138,9 @@ func (m *K8sManager) ensureService(ctx context.Context) error {
 	return nil
 }
 
-// ensureDeployment creates the vLLM deployment if it doesn't exist
-func (m *K8sManager) ensureDeployment(ctx context.Context, modelConfig *ModelConfig) error {
-	replicas := int32(0) // Start at 0, proxy will scale up on demand
-
-	deployment := &appsv1.Deployment{
+// CreatePod creates a new vLLM pod
+func (m *K8sManager) CreatePod(ctx context.Context, modelConfig *ModelConfig) error {
+	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      m.config.Deployment,
 			Namespace: m.config.Namespace,
@@ -154,50 +149,63 @@ func (m *K8sManager) ensureDeployment(ctx context.Context, modelConfig *ModelCon
 				"managed-by": "vllm-chill",
 			},
 		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
-			Strategy: appsv1.DeploymentStrategy{
-				Type: appsv1.RecreateDeploymentStrategyType,
-			},
-			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"app": "vllm",
-				},
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						"app": "vllm",
-					},
-				},
-				Spec: m.buildPodSpec(modelConfig),
-			},
-		},
+		Spec: m.buildPodSpec(modelConfig),
 	}
 
-	_, err := m.clientset.AppsV1().Deployments(m.config.Namespace).Get(ctx, m.config.Deployment, metav1.GetOptions{})
+	_, err := m.clientset.CoreV1().Pods(m.config.Namespace).Create(ctx, pod, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to create pod: %w", err)
+	}
+
+	log.Printf("Created Pod %s/%s", m.config.Namespace, m.config.Deployment)
+	return nil
+}
+
+// DeletePod deletes the vLLM pod
+func (m *K8sManager) DeletePod(ctx context.Context) error {
+	err := m.clientset.CoreV1().Pods(m.config.Namespace).Delete(
+		ctx,
+		m.config.Deployment,
+		metav1.DeleteOptions{
+			GracePeriodSeconds: func() *int64 { t := int64(0); return &t }(),
+		},
+	)
+	if err != nil && !errors.IsNotFound(err) {
+		return fmt.Errorf("failed to delete pod: %w", err)
+	}
+
+	log.Printf("Deleted Pod %s/%s", m.config.Namespace, m.config.Deployment)
+	return nil
+}
+
+// GetPod gets the vLLM pod
+func (m *K8sManager) GetPod(ctx context.Context) (*corev1.Pod, error) {
+	pod, err := m.clientset.CoreV1().Pods(m.config.Namespace).Get(
+		ctx,
+		m.config.Deployment,
+		metav1.GetOptions{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return pod, nil
+}
+
+// PodExists checks if the vLLM pod exists
+func (m *K8sManager) PodExists(ctx context.Context) (bool, error) {
+	_, err := m.GetPod(ctx)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			// Create new Deployment
-			_, err = m.clientset.AppsV1().Deployments(m.config.Namespace).Create(ctx, deployment, metav1.CreateOptions{})
-			if err != nil {
-				return fmt.Errorf("failed to create deployment: %w", err)
-			}
-			log.Printf("Created Deployment %s/%s", m.config.Namespace, m.config.Deployment)
-			return nil
+			return false, nil
 		}
-		return fmt.Errorf("failed to get deployment: %w", err)
+		return false, err
 	}
-
-	// Deployment already exists
-	log.Printf("Deployment %s/%s already exists", m.config.Namespace, m.config.Deployment)
-	return nil
+	return true, nil
 }
 
 // buildVLLMArgs builds the vLLM command-line arguments from ModelConfig
 func (m *K8sManager) buildVLLMArgs(modelConfig *ModelConfig) []string {
 	args := []string{
-		"python3", "-m", "vllm.entrypoints.openai.api_server",
 		"--model", modelConfig.ModelName,
 		"--served-model-name", modelConfig.ServedModelName,
 		"--tensor-parallel-size", modelConfig.TensorParallelSize,
@@ -234,7 +242,7 @@ func (m *K8sManager) buildVLLMArgs(modelConfig *ModelConfig) []string {
 		"--tool-call-parser", modelConfig.ToolCallParser,
 		"--host", "0.0.0.0",
 		"--port", "8000",
-		"--api-key", "token-abc123",
+		"--api-key", "$(VLLM_API_KEY)",
 	)
 
 	return args
@@ -242,6 +250,16 @@ func (m *K8sManager) buildVLLMArgs(modelConfig *ModelConfig) []string {
 
 // buildPodSpec builds the pod specification for vLLM
 func (m *K8sManager) buildPodSpec(modelConfig *ModelConfig) corev1.PodSpec {
+	// Determine GPU count for resource limits
+	// Priority: GPU_COUNT > TENSOR_PARALLEL_SIZE > default 2
+	gpuCount := modelConfig.GPUCount
+	if gpuCount == "" {
+		gpuCount = modelConfig.TensorParallelSize
+	}
+	if gpuCount == "" {
+		gpuCount = "2"
+	}
+
 	return corev1.PodSpec{
 		TerminationGracePeriodSeconds: func() *int64 { t := int64(0); return &t }(),
 		Volumes: []corev1.Volume{
@@ -278,8 +296,9 @@ func (m *K8sManager) buildPodSpec(modelConfig *ModelConfig) corev1.PodSpec {
 				Name:            "vllm",
 				Image:           "vllm/vllm-openai:latest",
 				ImagePullPolicy: corev1.PullIfNotPresent,
+				Command:         []string{"python3", "-m", "vllm.entrypoints.openai.api_server"},
 				Args:            m.buildVLLMArgs(modelConfig),
-				Env:             m.buildSystemEnvVars(),
+				Env:             m.buildVLLMEnvVars(),
 				Ports: []corev1.ContainerPort{
 					{
 						ContainerPort: 8000,
@@ -293,11 +312,11 @@ func (m *K8sManager) buildPodSpec(modelConfig *ModelConfig) corev1.PodSpec {
 				Resources: corev1.ResourceRequirements{
 					Limits: corev1.ResourceList{
 						corev1.ResourceMemory:                 resource.MustParse("32Gi"),
-						corev1.ResourceName("nvidia.com/gpu"): resource.MustParse("2"),
+						corev1.ResourceName("nvidia.com/gpu"): resource.MustParse(gpuCount),
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceMemory:                 resource.MustParse("16Gi"),
-						corev1.ResourceName("nvidia.com/gpu"): resource.MustParse("2"),
+						corev1.ResourceName("nvidia.com/gpu"): resource.MustParse(gpuCount),
 					},
 				},
 				VolumeMounts: []corev1.VolumeMount{
@@ -320,7 +339,7 @@ func (m *K8sManager) buildPodSpec(modelConfig *ModelConfig) corev1.PodSpec {
 							Path: "/health",
 							Port: intstr.FromString("http"),
 							HTTPHeaders: []corev1.HTTPHeader{
-								{Name: "Authorization", Value: "Bearer token-abc123"},
+								{Name: "Authorization", Value: "Bearer $(VLLM_API_KEY)"},
 							},
 						},
 					},
@@ -335,7 +354,7 @@ func (m *K8sManager) buildPodSpec(modelConfig *ModelConfig) corev1.PodSpec {
 							Path: "/health",
 							Port: intstr.FromString("http"),
 							HTTPHeaders: []corev1.HTTPHeader{
-								{Name: "Authorization", Value: "Bearer token-abc123"},
+								{Name: "Authorization", Value: "Bearer $(VLLM_API_KEY)"},
 							},
 						},
 					},
@@ -350,7 +369,7 @@ func (m *K8sManager) buildPodSpec(modelConfig *ModelConfig) corev1.PodSpec {
 							Path: "/health",
 							Port: intstr.FromString("http"),
 							HTTPHeaders: []corev1.HTTPHeader{
-								{Name: "Authorization", Value: "Bearer token-abc123"},
+								{Name: "Authorization", Value: "Bearer $(VLLM_API_KEY)"},
 							},
 						},
 					},
@@ -364,9 +383,19 @@ func (m *K8sManager) buildPodSpec(modelConfig *ModelConfig) corev1.PodSpec {
 	}
 }
 
-// buildSystemEnvVars builds system-level environment variables (non-model-specific)
-func (m *K8sManager) buildSystemEnvVars() []corev1.EnvVar {
+// buildVLLMEnvVars builds environment variables for the vLLM container
+func (m *K8sManager) buildVLLMEnvVars() []corev1.EnvVar {
 	envVars := []corev1.EnvVar{
+		// vLLM API key from secret
+		{
+			Name: "VLLM_API_KEY",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "vllm-api-key"},
+					Key:                  "api-key",
+				},
+			},
+		},
 		// System optimization environment variables
 		{
 			Name:  "TORCH_CUDA_ARCH_LIST",

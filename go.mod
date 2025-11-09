@@ -3,6 +3,7 @@ module github.com/efortin/vllm-chill
 go 1.24.0
 
 require (
+	github.com/NVIDIA/go-nvml v0.13.0-1
 	github.com/gin-gonic/gin v1.11.0
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
@@ -16,7 +17,6 @@ require (
 
 require (
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
-	github.com/NVIDIA/go-nvml v0.13.0-1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.14.2 // indirect

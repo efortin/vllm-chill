@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -16,7 +15,6 @@ func TestK8sManager_EnsureConfigMap(t *testing.T) {
 		Namespace:     "test-ns",
 		Deployment:    "vllm",
 		ConfigMapName: "vllm-config",
-		TargetHost:    "vllm-svc",
 	}
 	manager := NewK8sManager(clientset, config)
 
@@ -73,8 +71,7 @@ func TestK8sManager_EnsureConfigMap(t *testing.T) {
 func TestK8sManager_EnsureService(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 	config := &Config{
-		Namespace:  "test-ns",
-		TargetHost: "vllm-svc",
+		Namespace: "test-ns",
 	}
 	manager := NewK8sManager(clientset, config)
 
@@ -87,7 +84,7 @@ func TestK8sManager_EnsureService(t *testing.T) {
 		}
 
 		// Verify Service was created
-		svc, err := clientset.CoreV1().Services("test-ns").Get(ctx, "vllm-svc", metav1.GetOptions{})
+		svc, err := clientset.CoreV1().Services("test-ns").Get(ctx, "vllm-api", metav1.GetOptions{})
 		if err != nil {
 			t.Fatalf("Failed to get Service: %v", err)
 		}
@@ -117,7 +114,7 @@ func TestK8sManager_EnsureService(t *testing.T) {
 	})
 }
 
-func TestK8sManager_EnsureDeployment(t *testing.T) {
+func TestK8sManager_CreatePod(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 	config := &Config{
 		Namespace:     "test-ns",
@@ -130,6 +127,7 @@ func TestK8sManager_EnsureDeployment(t *testing.T) {
 		ModelName:              "test/model",
 		ServedModelName:        "test-model",
 		TensorParallelSize:     "1",
+		GPUCount:               "2",
 		MaxModelLen:            "8192",
 		GPUMemoryUtilization:   "0.9",
 		EnableChunkedPrefill:   "false",
@@ -145,39 +143,26 @@ func TestK8sManager_EnsureDeployment(t *testing.T) {
 
 	ctx := context.Background()
 
-	t.Run("create new deployment", func(t *testing.T) {
-		err := manager.ensureDeployment(ctx, modelConfig)
+	t.Run("create new pod", func(t *testing.T) {
+		err := manager.CreatePod(ctx, modelConfig)
 		if err != nil {
-			t.Fatalf("ensureDeployment() error = %v", err)
+			t.Fatalf("CreatePod() error = %v", err)
 		}
 
-		// Verify Deployment was created
-		dep, err := clientset.AppsV1().Deployments("test-ns").Get(ctx, "vllm", metav1.GetOptions{})
+		// Verify Pod was created
+		pod, err := clientset.CoreV1().Pods("test-ns").Get(ctx, "vllm", metav1.GetOptions{})
 		if err != nil {
-			t.Fatalf("Failed to get Deployment: %v", err)
+			t.Fatalf("Failed to get Pod: %v", err)
 		}
 
-		if *dep.Spec.Replicas != 0 {
-			t.Errorf("Deployment replicas = %v, want 0", *dep.Spec.Replicas)
-		}
-		if dep.Spec.Template.Spec.Containers[0].Name != "vllm" {
-			t.Errorf("Container name = %v, want vllm", dep.Spec.Template.Spec.Containers[0].Name)
-		}
-	})
-
-	t.Run("deployment already exists", func(t *testing.T) {
-		err := manager.ensureDeployment(ctx, modelConfig)
-		if err != nil {
-			t.Fatalf("ensureDeployment() error = %v", err)
+		if pod.Spec.Containers[0].Name != "vllm" {
+			t.Errorf("Container name = %v, want vllm", pod.Spec.Containers[0].Name)
 		}
 
-		// Should not error when deployment already exists
-		deployments, err := clientset.AppsV1().Deployments("test-ns").List(ctx, metav1.ListOptions{})
-		if err != nil {
-			t.Fatalf("Failed to list deployments: %v", err)
-		}
-		if len(deployments.Items) != 1 {
-			t.Errorf("Expected 1 deployment, got %d", len(deployments.Items))
+		// Verify GPU resources
+		gpuLimit := pod.Spec.Containers[0].Resources.Limits["nvidia.com/gpu"]
+		if gpuLimit.String() != "2" {
+			t.Errorf("GPU limit = %v, want 2", gpuLimit.String())
 		}
 	})
 }
@@ -188,7 +173,6 @@ func TestK8sManager_EnsureVLLMResources(t *testing.T) {
 		Namespace:     "test-ns",
 		Deployment:    "vllm",
 		ConfigMapName: "vllm-config",
-		TargetHost:    "vllm-svc",
 	}
 	manager := NewK8sManager(clientset, config)
 
@@ -210,15 +194,12 @@ func TestK8sManager_EnsureVLLMResources(t *testing.T) {
 		t.Errorf("ConfigMap not created: %v", err)
 	}
 
-	_, err = clientset.CoreV1().Services("test-ns").Get(ctx, "vllm-svc", metav1.GetOptions{})
+	_, err = clientset.CoreV1().Services("test-ns").Get(ctx, "vllm-api", metav1.GetOptions{})
 	if err != nil {
 		t.Errorf("Service not created: %v", err)
 	}
 
-	_, err = clientset.AppsV1().Deployments("test-ns").Get(ctx, "vllm", metav1.GetOptions{})
-	if err != nil {
-		t.Errorf("Deployment not created: %v", err)
-	}
+	// Note: Pods are created on demand, not during EnsureVLLMResources
 }
 
 func TestK8sManager_BuildSystemEnvVars(t *testing.T) {
@@ -227,7 +208,7 @@ func TestK8sManager_BuildSystemEnvVars(t *testing.T) {
 	}
 	manager := NewK8sManager(nil, config)
 
-	envVars := manager.buildSystemEnvVars()
+	envVars := manager.buildVLLMEnvVars()
 
 	// Check that system env vars are present (no model-specific vars)
 	requiredSystemVars := []string{
@@ -354,7 +335,7 @@ func TestK8sManager_WithExistingResources(t *testing.T) {
 
 	existingService := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "vllm-svc",
+			Name:      "vllm-api",
 			Namespace: "test-ns",
 		},
 		Spec: corev1.ServiceSpec{
@@ -364,23 +345,11 @@ func TestK8sManager_WithExistingResources(t *testing.T) {
 		},
 	}
 
-	replicas := int32(1)
-	existingDeployment := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "vllm",
-			Namespace: "test-ns",
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
-		},
-	}
-
-	clientset := fake.NewSimpleClientset(existingConfigMap, existingService, existingDeployment)
+	clientset := fake.NewSimpleClientset(existingConfigMap, existingService)
 	config := &Config{
 		Namespace:     "test-ns",
 		Deployment:    "vllm",
 		ConfigMapName: "vllm-config",
-		TargetHost:    "vllm-svc",
 	}
 	manager := NewK8sManager(clientset, config)
 
@@ -406,14 +375,8 @@ func TestK8sManager_WithExistingResources(t *testing.T) {
 	}
 
 	// Verify Service still exists
-	_, err = clientset.CoreV1().Services("test-ns").Get(ctx, "vllm-svc", metav1.GetOptions{})
+	_, err = clientset.CoreV1().Services("test-ns").Get(ctx, "vllm-api", metav1.GetOptions{})
 	if err != nil {
 		t.Errorf("Service should still exist: %v", err)
-	}
-
-	// Verify Deployment still exists
-	_, err = clientset.AppsV1().Deployments("test-ns").Get(ctx, "vllm", metav1.GetOptions{})
-	if err != nil {
-		t.Errorf("Deployment should still exist: %v", err)
 	}
 }

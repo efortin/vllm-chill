@@ -10,7 +10,6 @@ type Config struct {
 	Namespace     string
 	Deployment    string
 	ConfigMapName string
-	TargetSocket  string // Unix socket path to vLLM (e.g., "/tmp/vllm.sock")
 	IdleTimeout   string
 	Port          string
 	LogOutput     bool
@@ -28,9 +27,6 @@ func (c *Config) Validate() error {
 	if c.ConfigMapName == "" {
 		return fmt.Errorf("configmap name cannot be empty")
 	}
-	if c.TargetSocket == "" {
-		return fmt.Errorf("target socket cannot be empty")
-	}
 	if _, err := time.ParseDuration(c.IdleTimeout); err != nil {
 		return fmt.Errorf("invalid idle timeout: %w", err)
 	}
@@ -44,9 +40,4 @@ func (c *Config) Validate() error {
 func (c *Config) GetIdleTimeout() time.Duration {
 	d, _ := time.ParseDuration(c.IdleTimeout)
 	return d
-}
-
-// GetTargetSocket returns the Unix socket path
-func (c *Config) GetTargetSocket() string {
-	return c.TargetSocket
 }

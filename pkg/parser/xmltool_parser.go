@@ -578,21 +578,48 @@ func (p *XMLToolParser) parseParameters(content string) map[string]string {
 		// Extract parameter name
 		paramName := strings.TrimSpace(content[paramStart+11 : paramEnd])
 
+		if p.debug {
+			log.Printf("[XML-PARSER] Processing parameter: %s", paramName)
+			endPreview := paramEnd + 50
+			if endPreview > len(content) {
+				endPreview = len(content)
+			}
+			log.Printf("[XML-PARSER] Content after param tag: %q", content[paramEnd+1:endPreview])
+		}
+
 		// Find value (until closing tag or next tag)
 		valueStart := paramEnd + 1
-		valueEnd := len(content)
+		var valueEnd int
 
-		// Look for closing </parameter> tag first
-		closingTag := "</parameter>"
+		// Look for closing tag - check for incomplete tag first since it's a substring
+		// of the complete tag
+		closingTag := "</parameter"
 		closingIdx := strings.Index(content[valueStart:], closingTag)
+
 		if closingIdx != -1 {
-			// Found closing tag, use it as the end
+			// Check if it's a complete tag (has >) or incomplete
+			nextCharIdx := valueStart + closingIdx + len(closingTag)
+			if nextCharIdx < len(content) && content[nextCharIdx] == '>' {
+				// It's a complete tag
+				closingTag = "</parameter>"
+				if p.debug {
+					log.Printf("[XML-PARSER] Found complete closing tag at position %d", closingIdx)
+				}
+			} else if p.debug {
+				// It's an incomplete tag
+				log.Printf("[XML-PARSER] Found incomplete closing tag '%s' at position %d", closingTag, closingIdx)
+			}
 			valueEnd = valueStart + closingIdx
 		} else {
 			// No closing tag, look for next tag
 			nextTag := strings.Index(content[valueStart:], "<")
 			if nextTag != -1 {
 				valueEnd = valueStart + nextTag
+			} else {
+				valueEnd = len(content)
+			}
+			if p.debug {
+				log.Printf("[XML-PARSER] No closing tag found, using next tag at position %d", nextTag)
 			}
 		}
 
@@ -603,11 +630,16 @@ func (p *XMLToolParser) parseParameters(content string) map[string]string {
 			params[paramName] = paramValue
 		}
 
-		// Move past the closing tag if present, otherwise past the opening tag
+		// Move past the closing tag if present, otherwise past the value end
 		if closingIdx != -1 {
 			idx = valueEnd + len(closingTag)
 		} else {
-			idx = paramEnd + 1
+			// No closing tag found, move to valueEnd
+			idx = valueEnd
+			if idx == len(content) {
+				// We've reached the end
+				break
+			}
 		}
 	}
 

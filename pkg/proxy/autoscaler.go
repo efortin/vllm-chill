@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 
@@ -20,7 +20,6 @@ import (
 	"github.com/efortin/vllm-chill/pkg/stats"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
 	k8sclient "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -71,9 +70,16 @@ func NewAutoScaler(config *Config) (*AutoScaler, error) {
 		return nil, fmt.Errorf("failed to create dynamic client: %w", err)
 	}
 
-	// For Unix socket, we use a placeholder URL scheme
-	// The actual socket path is in config.TargetSocket
-	targetURL, err := url.Parse("http://unix")
+	// Construct target URL from environment variables
+	targetHost := os.Getenv("VLLM_TARGET")
+	targetPort := os.Getenv("VLLM_PORT")
+	if targetHost == "" {
+		targetHost = "vllm"
+	}
+	if targetPort == "" {
+		targetPort = "80"
+	}
+	targetURL, err := url.Parse(fmt.Sprintf("http://%s:%s", targetHost, targetPort))
 	if err != nil {
 		return nil, fmt.Errorf("invalid target URL: %w", err)
 	}
@@ -140,75 +146,41 @@ func (as *AutoScaler) GetMetrics() *stats.MetricsRecorder {
 	return as.metrics
 }
 
-// newUnixSocketTransport creates an HTTP transport that connects via Unix socket
-func (as *AutoScaler) newUnixSocketTransport() *http.Transport {
-	socketPath := as.config.GetTargetSocket()
-	return &http.Transport{
-		DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-			return net.Dial("unix", socketPath)
-		},
-	}
+// podExists checks if the vLLM pod exists
+func (as *AutoScaler) podExists(ctx context.Context) (bool, error) {
+	return as.k8sManager.PodExists(ctx)
 }
 
-// newUnixSocketClient creates an HTTP client that connects via Unix socket
-func (as *AutoScaler) newUnixSocketClient() *http.Client {
-	return &http.Client{
-		Transport: as.newUnixSocketTransport(),
-		Timeout:   30 * time.Second,
-	}
-}
-
-// getReplicas returns the current number of replicas for the deployment
-func (as *AutoScaler) getReplicas(ctx context.Context) (int32, error) {
-	dep, err := as.clientset.AppsV1().Deployments(as.config.Namespace).Get(
-		ctx,
-		as.config.Deployment,
-		metav1.GetOptions{},
-	)
-	if err != nil {
-		return 0, err
-	}
-	if dep.Spec.Replicas == nil {
-		return 0, nil
-	}
-	return *dep.Spec.Replicas, nil
-}
-
-// scaleDeployment scales the deployment to the specified number of replicas
-func (as *AutoScaler) scaleDeployment(ctx context.Context, replicas int32) error {
+// managePod creates or deletes the pod based on the desired state
+func (as *AutoScaler) managePod(ctx context.Context, create bool) error {
 	start := time.Now()
 	direction := "up"
-	if replicas == 0 {
+	if !create {
 		direction = "down"
 		as.metrics.SetVLLMState(3) // stopping
 	} else {
 		as.metrics.SetVLLMState(1) // starting
 	}
 
-	dep, err := as.clientset.AppsV1().Deployments(as.config.Namespace).Get(
-		ctx,
-		as.config.Deployment,
-		metav1.GetOptions{},
-	)
-	if err != nil {
-		as.metrics.RecordScaleOp(direction, false, time.Since(start))
-		if replicas == 0 {
-			as.metrics.SetVLLMState(2) // failed to stop, keep as running
-		} else {
+	var err error
+	if create {
+		// Get model config
+		var modelConfig *kubernetes.ModelConfig
+		modelConfig, err = as.crdClient.GetModel(ctx, as.config.ModelID)
+		if err != nil {
+			as.metrics.RecordScaleOp(direction, false, time.Since(start))
 			as.metrics.SetVLLMState(0) // failed to start, mark as stopped
+			return fmt.Errorf("failed to get model config: %w", err)
 		}
-		return err
+
+		err = as.k8sManager.CreatePod(ctx, modelConfig)
+	} else {
+		err = as.k8sManager.DeletePod(ctx)
 	}
 
-	dep.Spec.Replicas = &replicas
-	_, err = as.clientset.AppsV1().Deployments(as.config.Namespace).Update(
-		ctx,
-		dep,
-		metav1.UpdateOptions{},
-	)
 	if err != nil {
 		as.metrics.RecordScaleOp(direction, false, time.Since(start))
-		if replicas == 0 {
+		if !create {
 			as.metrics.SetVLLMState(2) // failed to stop, keep as running
 		} else {
 			as.metrics.SetVLLMState(0) // failed to start, mark as stopped
@@ -217,22 +189,21 @@ func (as *AutoScaler) scaleDeployment(ctx context.Context, replicas int32) error
 	}
 
 	as.metrics.RecordScaleOp(direction, true, time.Since(start))
-	as.metrics.UpdateReplicas(replicas)
-
-	// Record shutdown duration when scaling to 0
-	if replicas == 0 {
+	if create {
+		as.metrics.UpdateReplicas(1)
+		log.Printf("Created pod %s/%s", as.config.Namespace, as.config.Deployment)
+	} else {
+		as.metrics.UpdateReplicas(0)
 		shutdownDuration := time.Since(start)
 		as.metrics.RecordVLLMShutdown(shutdownDuration)
 		as.metrics.SetVLLMState(0) // stopped
-		log.Printf("Scaled %s/%s to 0 replicas (shutdown took %v)", as.config.Namespace, as.config.Deployment, shutdownDuration)
-	} else {
-		log.Printf("Scaled %s/%s to %d replicas", as.config.Namespace, as.config.Deployment, replicas)
+		log.Printf("Deleted pod %s/%s (shutdown took %v)", as.config.Namespace, as.config.Deployment, shutdownDuration)
 	}
 
 	return nil
 }
 
-// waitForReady waits for the deployment to have at least one ready replica
+// waitForReady waits for the pod to be ready
 func (as *AutoScaler) waitForReady(ctx context.Context, timeout time.Duration) error {
 	startupStart := time.Now()
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -245,40 +216,39 @@ func (as *AutoScaler) waitForReady(ctx context.Context, timeout time.Duration) e
 		select {
 		case <-ctx.Done():
 			as.metrics.SetVLLMState(0) // failed to start, mark as stopped
-			return fmt.Errorf("timeout waiting for deployment to be ready")
+			return fmt.Errorf("timeout waiting for pod to be ready")
 		case <-ticker.C:
-			dep, err := as.clientset.AppsV1().Deployments(as.config.Namespace).Get(
-				ctx,
-				as.config.Deployment,
-				metav1.GetOptions{},
-			)
+			pod, err := as.k8sManager.GetPod(ctx)
 			if err != nil {
 				continue
 			}
-			if dep.Status.ReadyReplicas > 0 {
-				startupDuration := time.Since(startupStart)
-				as.metrics.RecordVLLMStartup(startupDuration)
-				as.metrics.SetVLLMState(2) // running
-				log.Printf("Deployment %s/%s is ready (startup took %v)", as.config.Namespace, as.config.Deployment, startupDuration)
-				return nil
+			// Check if pod is ready
+			for _, cond := range pod.Status.Conditions {
+				if cond.Type == "Ready" && cond.Status == "True" {
+					startupDuration := time.Since(startupStart)
+					as.metrics.RecordVLLMStartup(startupDuration)
+					as.metrics.SetVLLMState(2) // running
+					log.Printf("Pod %s/%s is ready (startup took %v)", as.config.Namespace, as.config.Deployment, startupDuration)
+					return nil
+				}
 			}
 		}
 	}
 }
 
-// ensureScaledUp ensures the deployment is scaled up and ready
+// ensureScaledUp ensures the pod is created and ready
 func (as *AutoScaler) ensureScaledUp(ctx context.Context) error {
 	as.mu.Lock()
 	defer as.mu.Unlock()
 
-	// Check if already scaled up
-	replicas, err := as.getReplicas(ctx)
+	// Check if pod already exists
+	exists, err := as.podExists(ctx)
 	if err != nil {
 		return err
 	}
 
-	if replicas > 0 {
-		// Already scaled up, just wait for ready
+	if exists {
+		// Pod already exists, just wait for ready
 		as.mu.Unlock()
 		err := as.waitForReady(ctx, defaultScaleUpTimeout)
 		as.mu.Lock()
@@ -287,22 +257,22 @@ func (as *AutoScaler) ensureScaledUp(ctx context.Context) error {
 
 	// If another goroutine is already scaling up, wait
 	if as.isScalingUp {
-		log.Printf("Waiting for ongoing scale-up...")
+		log.Printf("Waiting for ongoing pod creation...")
 		as.scaleUpCond.Wait()
 		return nil
 	}
 
-	// We're the one scaling up
+	// We're the one creating the pod
 	as.isScalingUp = true
 	defer func() {
 		as.isScalingUp = false
 		as.scaleUpCond.Broadcast()
 	}()
 
-	log.Printf("Scaling up %s/%s...", as.config.Namespace, as.config.Deployment)
+	log.Printf("Creating pod %s/%s...", as.config.Namespace, as.config.Deployment)
 
 	as.mu.Unlock()
-	err = as.scaleDeployment(ctx, 1)
+	err = as.managePod(ctx, true)
 	if err != nil {
 		as.mu.Lock()
 		return err
@@ -370,9 +340,8 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Proxy the request via Unix socket
+	// Proxy the request via HTTP
 	proxy := httputil.NewSingleHostReverseProxy(as.targetURL)
-	proxy.Transport = as.newUnixSocketTransport()
 	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
 		log.Printf("Proxy error: %v", err)
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
@@ -397,8 +366,8 @@ func (as *AutoScaler) versionHandler(c *gin.Context) {
 
 // MetricsHandler combines vLLM metrics with proxy metrics
 func (as *AutoScaler) MetricsHandler(c *gin.Context) {
-	// Fetch vLLM metrics via Unix socket
-	client := as.newUnixSocketClient()
+	// Fetch vLLM metrics via HTTP
+	client := &http.Client{Timeout: 30 * time.Second}
 	vllmMetricsURL := fmt.Sprintf("%s/metrics", as.targetURL.String())
 	resp, err := client.Get(vllmMetricsURL)
 
@@ -449,7 +418,7 @@ func (as *AutoScaler) Start(ctx context.Context) error {
 
 // Stop implements operation.Manager interface for manual stop
 func (as *AutoScaler) Stop(ctx context.Context) error {
-	return as.scaleDeployment(ctx, 0)
+	return as.managePod(ctx, false)
 }
 
 // UpdateActivity implements operation.Manager interface
@@ -469,16 +438,16 @@ func (as *AutoScaler) startIdleChecker() {
 
 		if idleTime > as.config.GetIdleTimeout() {
 			ctx := context.Background()
-			replicas, err := as.getReplicas(ctx)
+			exists, err := as.podExists(ctx)
 			if err != nil {
-				log.Printf("Failed to get replicas: %v", err)
+				log.Printf("Failed to check pod existence: %v", err)
 				continue
 			}
 
-			if replicas > 0 {
-				log.Printf("Idle for %v, scaling to 0...", idleTime.Round(time.Second))
-				if err := as.scaleDeployment(ctx, 0); err != nil {
-					log.Printf("Failed to scale down: %v", err)
+			if exists {
+				log.Printf("Idle for %v, deleting pod...", idleTime.Round(time.Second))
+				if err := as.managePod(ctx, false); err != nil {
+					log.Printf("Failed to delete pod: %v", err)
 				}
 			}
 		}
