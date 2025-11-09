@@ -10,7 +10,7 @@ builds:
     main: ./cmd/autoscaler
     binary: vllm-chill
     env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
     goos:
       - linux
     goarch:
@@ -24,7 +24,6 @@ builds:
 
 archives:
   - id: default
-    format: tar.gz
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_
@@ -50,7 +49,7 @@ changelog:
       - Merge pull request
       - Merge branch
 
-dockers:
+dockers_v2:
   # AMD64 image
   - image_templates:
       - "{{ .Env.DOCKER_REGISTRY }}/{{ .Env.DOCKER_IMAGE }}:{{ .Version }}-amd64"

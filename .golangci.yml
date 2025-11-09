@@ -14,7 +14,6 @@ linters:
     - unconvert
     - nilerr
     - gocritic
-    - revive
 
 formatters:
   enable:

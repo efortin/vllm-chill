@@ -208,6 +208,30 @@ Result: a < b < c < d is true`
 		assert.Equal(t, "a < b < c < d", args["expression"])
 	})
 
+	t.Run("incomplete_parameter_closing_tag", func(t *testing.T) {
+		// Test case for incomplete </parameter tag (missing >)
+		content := `<function=search>
+<parameter=query>test search</parameter
+<parameter=count>5</parameter>
+</function>`
+
+		toolCalls := parser.ParseXMLToolCalls(content)
+		require.Len(t, toolCalls, 1)
+		assert.Equal(t, "search", toolCalls[0].Function.Name)
+
+		args := toolCalls[0].Function.Arguments
+		require.NotNil(t, args)
+
+		// Parse the arguments JSON
+		var parsedArgs map[string]interface{}
+		err := json.Unmarshal([]byte(args), &parsedArgs)
+		require.NoError(t, err)
+
+		// Verify both parameters are correctly extracted
+		assert.Equal(t, "test search", parsedArgs["query"])
+		assert.Equal(t, "5", parsedArgs["count"])
+	})
+
 	t.Run("no_tool_calls_with_less_than", func(t *testing.T) {
 		content := `This is just text with a < b comparison and no tool calls`
 

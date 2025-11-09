@@ -1,0 +1,321 @@
+---
+# ServiceAccount for vllm-chill proxy
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vllm-chill
+  namespace: vllm
+
+---
+# Role for vllm-chill to manage vLLM deployment and ConfigMap (namespace-scoped)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vllm-chill
+  namespace: vllm
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "create", "update", "patch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["list", "delete", "deletecollection"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "create", "update", "patch"]
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "create", "update", "patch"]
+
+---
+# RoleBinding for vllm-chill
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vllm-chill
+  namespace: vllm
+subjects:
+- kind: ServiceAccount
+  name: vllm-chill
+  namespace: vllm
+roleRef:
+  kind: Role
+  name: vllm-chill
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# ClusterRole for vllm-chill to read VLLMModels (cluster-scoped)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vllm-chill-models
+rules:
+- apiGroups: ["vllm.sir-alfred.io"]
+  resources: ["models"]
+  verbs: ["get", "list"]
+
+---
+# ClusterRoleBinding for vllm-chill to read VLLMModels
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vllm-chill-models
+subjects:
+- kind: ServiceAccount
+  name: vllm-chill
+  namespace: vllm
+roleRef:
+  kind: ClusterRole
+  name: vllm-chill-models
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# vLLM + vllm-chill Sidecar Deployment
+# This deployment runs both vLLM and vllm-chill in the same pod,
+# communicating via Unix socket for zero-latency IPC
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  namespace: vllm
+  labels:
+    app: vllm
+    managed-by: vllm-chill
+spec:
+  replicas: 0  # Start at 0, vllm-chill proxy will scale up on demand
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: vllm
+  template:
+    metadata:
+      labels:
+        app: vllm
+    spec:
+      serviceAccountName: vllm-chill
+      terminationGracePeriodSeconds: 0
+      volumes:
+      # Shared volume for Unix socket communication
+      - name: vllm-socket
+        emptyDir: {}
+      # HuggingFace cache (host path for faster model loading)
+      - name: hf-cache
+        hostPath:
+          path: /home/manu/.cache/huggingface
+          type: DirectoryOrCreate
+      # vLLM compilation cache
+      - name: vllm-compile-cache
+        hostPath:
+          path: /home/manu/.cache/vllm-compile
+          type: DirectoryOrCreate
+      # Shared memory for vLLM
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 16Gi
+
+      containers:
+      # vLLM container - serves models
+      - name: vllm
+        image: vllm/vllm-openai:latest
+        imagePullPolicy: IfNotPresent
+        args:
+          - python3
+          - -m
+          - vllm.entrypoints.openai.api_server
+          - --model
+          - Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8
+          - --served-model-name
+          - qwen3-coder-30b-fp8
+          - --tensor-parallel-size
+          - "2"
+          - --max-model-len
+          - "110000"
+          - --gpu-memory-utilization
+          - "0.91"
+          - --enable-chunked-prefill
+          - --max-num-batched-tokens
+          - "4096"
+          - --max-num-seqs
+          - "16"
+          - --dtype
+          - float16
+          - --disable-custom-all-reduce
+          - --enable-prefix-caching
+          - --cpu-offload-gb
+          - "0"
+          - --enable-auto-tool-choice
+          - --tool-call-parser
+          - qwen3_coder
+          - --uvicorn-sock
+          - /tmp/vllm.sock  # Listen on Unix socket
+          - --api-key
+          - token-abc123
+        env:
+          # System optimization environment variables
+          - name: TORCH_CUDA_ARCH_LIST
+            value: "8.6"
+          - name: VLLM_TORCH_COMPILE_CACHE_DIR
+            value: "/root/.cache/vllm/torch_compile_cache"
+          - name: HF_HUB_ENABLE_HF_TRANSFER
+            value: "1"
+          - name: OMP_NUM_THREADS
+            value: "16"
+          # HF Token from secret (optional)
+          - name: HF_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: hf-token-secret
+                key: token
+                optional: true
+          - name: HUGGING_FACE_HUB_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: hf-token-secret
+                key: token
+                optional: true
+        resources:
+          limits:
+            memory: "32Gi"
+            nvidia.com/gpu: "2"
+          requests:
+            memory: "16Gi"
+            nvidia.com/gpu: "2"
+        volumeMounts:
+          - name: vllm-socket
+            mountPath: /tmp
+          - name: hf-cache
+            mountPath: /root/.cache/huggingface
+          - name: vllm-compile-cache
+            mountPath: /root/.cache/vllm
+          - name: shm
+            mountPath: /dev/shm
+        # Startup probe - vLLM can take a while to load model
+        startupProbe:
+          exec:
+            command:
+              - /bin/sh
+              - -c
+              - "test -S /tmp/vllm.sock"
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 24
+
+      # vllm-chill sidecar - autoscaler proxy
+      - name: vllm-chill
+        image: efortin/vllm-chill:latest
+        imagePullPolicy: Always
+        args:
+          - serve
+        env:
+          - name: VLLM_NAMESPACE
+            value: "vllm"
+          - name: VLLM_DEPLOYMENT
+            value: "vllm"
+          - name: VLLM_CONFIGMAP
+            value: "vllm-config"
+          - name: VLLM_SOCKET
+            value: "/tmp/vllm.sock"  # Connect via Unix socket
+          - name: MODEL_ID
+            value: "qwen3-coder-30b-fp8"
+          - name: IDLE_TIMEOUT
+            value: "20m"
+          - name: PORT
+            value: "8080"
+        ports:
+          - containerPort: 8080
+            name: http
+        volumeMounts:
+          - name: vllm-socket
+            mountPath: /tmp
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 3
+          periodSeconds: 5
+
+---
+# vllm-chill Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-chill-svc
+  namespace: vllm
+  labels:
+    app: vllm
+spec:
+  selector:
+    app: vllm
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  type: ClusterIP
+
+---
+# vLLM Service (for pod discovery and compatibility)
+# Note: In sidecar mode, this is not used for communication
+# (Unix socket is used instead), but kept for compatibility
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm
+  namespace: vllm
+  labels:
+    app: vllm
+    managed-by: vllm-chill
+spec:
+  selector:
+    app: vllm
+  ports:
+  - name: http
+    protocol: TCP
+    port: 80
+    targetPort: 8000
+  - name: metrics
+    protocol: TCP
+    port: 8001
+    targetPort: 8001
+  type: ClusterIP
+
+---
+# Ingress (optional - adjust based on your ingress controller)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vllm-chill
+  namespace: vllm
+  annotations:
+    # Example for nginx ingress
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: vllm.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: vllm-chill-svc
+            port:
+              number: 80

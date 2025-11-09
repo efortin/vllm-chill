@@ -3,269 +3,130 @@ package proxy
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func TestConfig_Validate(t *testing.T) {
+func TestConfigValidate(t *testing.T) {
 	tests := []struct {
-		name    string
-		config  *Config
-		wantErr bool
+		name        string
+		config      Config
+		expectError bool
 	}{
 		{
-			name: "all fields set correctly",
-			config: &Config{
-				Namespace:      "ai-apps",
-				Deployment:     "vllm-deployment",
-				ConfigMapName:  "vllm-config",
-				TargetHost:     "vllm-service.ai-apps.svc.cluster.local",
-				TargetPort:     "8000",
-				IdleTimeout:    "10m",
-				ManagedTimeout: "5m",
-				Port:           "9090",
-				ModelID:        "test-model",
+			name: "valid config",
+			config: Config{
+				Namespace:     "test-ns",
+				Deployment:    "test-deployment",
+				ConfigMapName: "test-configmap",
+				IdleTimeout:   "5m",
+				Port:          "8080",
+				ModelID:       "test-model",
 			},
-			wantErr: false,
+			expectError: false,
 		},
 		{
 			name: "empty namespace",
-			config: &Config{
-				Namespace:      "",
-				Deployment:     "vllm-deployment",
-				ConfigMapName:  "vllm-config",
-				TargetHost:     "vllm-service.ai-apps.svc.cluster.local",
-				TargetPort:     "8000",
-				IdleTimeout:    "10m",
-				ManagedTimeout: "5m",
-				Port:           "9090",
-				ModelID:        "test-model",
+			config: Config{
+				Namespace:     "",
+				Deployment:    "test-deployment",
+				ConfigMapName: "test-configmap",
+				IdleTimeout:   "5m",
+				Port:          "8080",
+				ModelID:       "test-model",
 			},
-			wantErr: true,
+			expectError: true,
 		},
 		{
 			name: "empty deployment",
-			config: &Config{
-				Namespace:      "ai-apps",
-				Deployment:     "",
-				ConfigMapName:  "vllm-config",
-				TargetHost:     "vllm-service.ai-apps.svc.cluster.local",
-				TargetPort:     "8000",
-				IdleTimeout:    "10m",
-				ManagedTimeout: "5m",
-				Port:           "9090",
-				ModelID:        "test-model",
+			config: Config{
+				Namespace:     "test-ns",
+				Deployment:    "",
+				ConfigMapName: "test-configmap",
+				IdleTimeout:   "5m",
+				Port:          "8080",
+				ModelID:       "test-model",
 			},
-			wantErr: true,
+			expectError: true,
 		},
 		{
-			name: "empty configmap name",
-			config: &Config{
-				Namespace:      "ai-apps",
-				Deployment:     "vllm-deployment",
-				ConfigMapName:  "",
-				TargetHost:     "vllm-service.ai-apps.svc.cluster.local",
-				TargetPort:     "8000",
-				IdleTimeout:    "10m",
-				ManagedTimeout: "5m",
-				Port:           "9090",
-				ModelID:        "test-model",
+			name: "empty configmap",
+			config: Config{
+				Namespace:     "test-ns",
+				Deployment:    "test-deployment",
+				ConfigMapName: "",
+				IdleTimeout:   "5m",
+				Port:          "8080",
+				ModelID:       "test-model",
 			},
-			wantErr: true,
-		},
-		{
-			name: "empty target host",
-			config: &Config{
-				Namespace:      "ai-apps",
-				Deployment:     "vllm-deployment",
-				ConfigMapName:  "vllm-config",
-				TargetHost:     "",
-				TargetPort:     "8000",
-				IdleTimeout:    "10m",
-				ManagedTimeout: "5m",
-				Port:           "9090",
-				ModelID:        "test-model",
-			},
-			wantErr: true,
-		},
-		{
-			name: "empty target port",
-			config: &Config{
-				Namespace:      "ai-apps",
-				Deployment:     "vllm-deployment",
-				ConfigMapName:  "vllm-config",
-				TargetHost:     "vllm-service.ai-apps.svc.cluster.local",
-				TargetPort:     "",
-				IdleTimeout:    "10m",
-				ManagedTimeout: "5m",
-				Port:           "9090",
-				ModelID:        "test-model",
-			},
-			wantErr: true,
+			expectError: true,
 		},
 		{
 			name: "invalid idle timeout",
-			config: &Config{
-				Namespace:      "ai-apps",
-				Deployment:     "vllm-deployment",
-				ConfigMapName:  "vllm-config",
-				TargetHost:     "vllm-service.ai-apps.svc.cluster.local",
-				TargetPort:     "8000",
-				IdleTimeout:    "invalid",
-				ManagedTimeout: "5m",
-				Port:           "9090",
-				ModelID:        "test-model",
+			config: Config{
+				Namespace:     "test-ns",
+				Deployment:    "test-deployment",
+				ConfigMapName: "test-configmap",
+				IdleTimeout:   "invalid",
+				Port:          "8080",
+				ModelID:       "test-model",
 			},
-			wantErr: true,
-		},
-		{
-			name: "invalid managed timeout",
-			config: &Config{
-				Namespace:      "ai-apps",
-				Deployment:     "vllm-deployment",
-				ConfigMapName:  "vllm-config",
-				TargetHost:     "vllm-service.ai-apps.svc.cluster.local",
-				TargetPort:     "8000",
-				IdleTimeout:    "10m",
-				ManagedTimeout: "invalid",
-				Port:           "9090",
-				ModelID:        "test-model",
-			},
-			wantErr: true,
+			expectError: true,
 		},
 		{
 			name: "empty model ID",
-			config: &Config{
-				Namespace:      "ai-apps",
-				Deployment:     "vllm-deployment",
-				ConfigMapName:  "vllm-config",
-				TargetHost:     "vllm-service.ai-apps.svc.cluster.local",
-				TargetPort:     "8000",
-				IdleTimeout:    "10m",
-				ManagedTimeout: "5m",
-				Port:           "9090",
-				ModelID:        "",
+			config: Config{
+				Namespace:     "test-ns",
+				Deployment:    "test-deployment",
+				ConfigMapName: "test-configmap",
+				IdleTimeout:   "5m",
+				Port:          "8080",
+				ModelID:       "",
 			},
-			wantErr: true,
+			expectError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.config.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Config.Validate() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
 			}
 		})
 	}
 }
 
-func TestConfig_GetIdleTimeout(t *testing.T) {
+func TestConfigGetIdleTimeout(t *testing.T) {
 	tests := []struct {
 		name     string
-		config   *Config
+		timeout  string
 		expected time.Duration
 	}{
 		{
-			name: "valid timeout",
-			config: &Config{
-				IdleTimeout: "5m",
-			},
+			name:     "5 minutes",
+			timeout:  "5m",
 			expected: 5 * time.Minute,
 		},
 		{
-			name: "zero timeout",
-			config: &Config{
-				IdleTimeout: "0s",
-			},
-			expected: 0,
+			name:     "10 seconds",
+			timeout:  "10s",
+			expected: 10 * time.Second,
 		},
 		{
-			name: "custom timeout",
-			config: &Config{
-				IdleTimeout: "1h30m",
-			},
-			expected: time.Hour + 30*time.Minute,
+			name:     "1 hour",
+			timeout:  "1h",
+			expected: 1 * time.Hour,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tt.config.GetIdleTimeout()
-			if result != tt.expected {
-				t.Errorf("Config.GetIdleTimeout() = %v, want %v", result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestConfig_GetTargetURL(t *testing.T) {
-	tests := []struct {
-		name     string
-		config   *Config
-		expected string
-	}{
-		{
-			name: "standard case",
-			config: &Config{
-				TargetHost: "localhost",
-				TargetPort: "8080",
-			},
-			expected: "http://localhost:8080",
-		},
-		{
-			name: "different host and port",
-			config: &Config{
-				TargetHost: "api.example.com",
-				TargetPort: "443",
-			},
-			expected: "http://api.example.com:443",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := tt.config.GetTargetURL()
-			if result != tt.expected {
-				t.Errorf("Config.GetTargetURL() = %v, want %v", result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestConfig_GetManagedTimeout(t *testing.T) {
-	tests := []struct {
-		name     string
-		config   *Config
-		expected time.Duration
-	}{
-		{
-			name: "valid timeout",
-			config: &Config{
-				ManagedTimeout: "5m",
-			},
-			expected: 5 * time.Minute,
-		},
-		{
-			name: "zero timeout",
-			config: &Config{
-				ManagedTimeout: "0s",
-			},
-			expected: 5 * time.Minute, // Should default to 5 minutes
-		},
-		{
-			name: "invalid timeout",
-			config: &Config{
-				ManagedTimeout: "invalid",
-			},
-			expected: 5 * time.Minute, // Should default to 5 minutes
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := tt.config.GetManagedTimeout()
-			if result != tt.expected {
-				t.Errorf("Config.GetManagedTimeout() = %v, want %v", result, tt.expected)
-			}
+			config := Config{IdleTimeout: tt.timeout}
+			result := config.GetIdleTimeout()
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
