@@ -67,6 +67,9 @@ See [QUICKSTART.md](QUICKSTART.md) for installation instructions.
 # Run tests
 task test
 
+# Run linter
+task lint
+
 # Build
 task build
 
