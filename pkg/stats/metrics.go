@@ -1,4 +1,5 @@
-package proxy
+// Package stats provides Prometheus metrics collection and GPU statistics monitoring.
+package stats
 
 import (
 	"strconv"
@@ -103,6 +104,56 @@ var (
 			Help: "Current model loaded (1 if loaded, 0 otherwise)",
 		},
 		[]string{"model_name"},
+	)
+
+	// XML parsing metrics
+	xmlParsingTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "vllm_chill_xml_parsing_total",
+			Help: "Total number of XML tool calls parsed and converted",
+		},
+		[]string{"status"},
+	)
+
+	xmlToolCallsDetected = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "vllm_chill_xml_tool_calls_detected_total",
+			Help: "Total number of tool calls detected in XML format",
+		},
+	)
+
+	// Proxy latency metrics
+	proxyLatency = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "vllm_chill_proxy_latency_seconds",
+			Help:    "Latency added by the proxy before forwarding to vLLM",
+			Buckets: []float64{0.001, 0.005, 0.010, 0.025, 0.050, 0.100, 0.250, 0.500, 1.000},
+		},
+		[]string{"operation"},
+	)
+
+	// vLLM lifecycle metrics
+	vllmStartupDuration = promauto.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "vllm_chill_vllm_startup_duration_seconds",
+			Help:    "Time taken for vLLM to start and become ready",
+			Buckets: []float64{10, 20, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600},
+		},
+	)
+
+	vllmShutdownDuration = promauto.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "vllm_chill_vllm_shutdown_duration_seconds",
+			Help:    "Time taken for vLLM to shut down completely",
+			Buckets: []float64{1, 2, 5, 10, 15, 30, 60},
+		},
+	)
+
+	vllmState = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "vllm_chill_vllm_state",
+			Help: "Current vLLM state: 0=stopped, 1=starting, 2=running, 3=stopping",
+		},
 	)
 )
 
@@ -224,4 +275,39 @@ func (mr *MetricsRecorder) SetCurrentModel(modelName string) {
 	}
 	mr.currentModelName = modelName
 	currentModel.WithLabelValues(modelName).Set(1)
+}
+
+// RecordXMLParsing records an XML parsing operation
+func (mr *MetricsRecorder) RecordXMLParsing(success bool, toolCallCount int) {
+	status := "success"
+	if !success {
+		status = "failure"
+	}
+
+	xmlParsingTotal.WithLabelValues(status).Inc()
+
+	if success && toolCallCount > 0 {
+		xmlToolCallsDetected.Add(float64(toolCallCount))
+	}
+}
+
+// RecordProxyLatency records the latency added by the proxy
+func (mr *MetricsRecorder) RecordProxyLatency(operation string, duration time.Duration) {
+	proxyLatency.WithLabelValues(operation).Observe(duration.Seconds())
+}
+
+// RecordVLLMStartup records the time taken for vLLM to start
+func (mr *MetricsRecorder) RecordVLLMStartup(duration time.Duration) {
+	vllmStartupDuration.Observe(duration.Seconds())
+}
+
+// RecordVLLMShutdown records the time taken for vLLM to shut down
+func (mr *MetricsRecorder) RecordVLLMShutdown(duration time.Duration) {
+	vllmShutdownDuration.Observe(duration.Seconds())
+}
+
+// SetVLLMState sets the current vLLM state
+// States: 0=stopped, 1=starting, 2=running, 3=stopping
+func (mr *MetricsRecorder) SetVLLMState(state int) {
+	vllmState.Set(float64(state))
 }

@@ -1,4 +1,4 @@
-package proxy
+package kubernetes
 
 import (
 	"context"
@@ -41,7 +41,7 @@ func (m *K8sManager) EnsureVLLMResources(ctx context.Context, initialModel *Mode
 	}
 
 	// Ensure Deployment exists
-	if err := m.ensureDeployment(ctx); err != nil {
+	if err := m.ensureDeployment(ctx, initialModel); err != nil {
 		return fmt.Errorf("failed to ensure deployment: %w", err)
 	}
 
@@ -87,10 +87,13 @@ func (m *K8sManager) ensureConfigMap(ctx context.Context, modelConfig *ModelConf
 }
 
 // ensureService creates the vLLM service if it doesn't exist
+// Note: In sidecar mode with Unix sockets, this service is not used for communication
+// but kept for pod discovery and compatibility
 func (m *K8sManager) ensureService(ctx context.Context) error {
+	serviceName := "vllm"
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      m.config.TargetHost,
+			Name:      serviceName,
 			Namespace: m.config.Namespace,
 			Labels: map[string]string{
 				"app":        "vllm",
@@ -119,7 +122,7 @@ func (m *K8sManager) ensureService(ctx context.Context) error {
 		},
 	}
 
-	_, err := m.clientset.CoreV1().Services(m.config.Namespace).Get(ctx, m.config.TargetHost, metav1.GetOptions{})
+	_, err := m.clientset.CoreV1().Services(m.config.Namespace).Get(ctx, serviceName, metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// Create new Service
@@ -127,19 +130,19 @@ func (m *K8sManager) ensureService(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("failed to create service: %w", err)
 			}
-			log.Printf("Created Service %s/%s", m.config.Namespace, m.config.TargetHost)
+			log.Printf("Created Service %s/%s", m.config.Namespace, serviceName)
 			return nil
 		}
 		return fmt.Errorf("failed to get service: %w", err)
 	}
 
 	// Service already exists
-	log.Printf("Service %s/%s already exists", m.config.Namespace, m.config.TargetHost)
+	log.Printf("Service %s/%s already exists", m.config.Namespace, serviceName)
 	return nil
 }
 
 // ensureDeployment creates the vLLM deployment if it doesn't exist
-func (m *K8sManager) ensureDeployment(ctx context.Context) error {
+func (m *K8sManager) ensureDeployment(ctx context.Context, modelConfig *ModelConfig) error {
 	replicas := int32(0) // Start at 0, proxy will scale up on demand
 
 	deployment := &appsv1.Deployment{
@@ -167,7 +170,7 @@ func (m *K8sManager) ensureDeployment(ctx context.Context) error {
 						"app": "vllm",
 					},
 				},
-				Spec: m.buildPodSpec(),
+				Spec: m.buildPodSpec(modelConfig),
 			},
 		},
 	}
@@ -191,8 +194,54 @@ func (m *K8sManager) ensureDeployment(ctx context.Context) error {
 	return nil
 }
 
+// buildVLLMArgs builds the vLLM command-line arguments from ModelConfig
+func (m *K8sManager) buildVLLMArgs(modelConfig *ModelConfig) []string {
+	args := []string{
+		"python3", "-m", "vllm.entrypoints.openai.api_server",
+		"--model", modelConfig.ModelName,
+		"--served-model-name", modelConfig.ServedModelName,
+		"--tensor-parallel-size", modelConfig.TensorParallelSize,
+		"--max-model-len", modelConfig.MaxModelLen,
+		"--gpu-memory-utilization", modelConfig.GPUMemoryUtilization,
+	}
+
+	// Add optional boolean flags
+	if modelConfig.EnableChunkedPrefill == "true" {
+		args = append(args, "--enable-chunked-prefill")
+	}
+
+	args = append(args,
+		"--max-num-batched-tokens", modelConfig.MaxNumBatchedTokens,
+		"--max-num-seqs", modelConfig.MaxNumSeqs,
+		"--dtype", modelConfig.Dtype,
+	)
+
+	if modelConfig.DisableCustomAllReduce == "true" {
+		args = append(args, "--disable-custom-all-reduce")
+	}
+
+	if modelConfig.EnablePrefixCaching == "true" {
+		args = append(args, "--enable-prefix-caching")
+	}
+
+	args = append(args, "--cpu-offload-gb", modelConfig.CPUOffloadGB)
+
+	if modelConfig.EnableAutoToolChoice == "true" {
+		args = append(args, "--enable-auto-tool-choice")
+	}
+
+	args = append(args,
+		"--tool-call-parser", modelConfig.ToolCallParser,
+		"--host", "0.0.0.0",
+		"--port", "8000",
+		"--api-key", "token-abc123",
+	)
+
+	return args
+}
+
 // buildPodSpec builds the pod specification for vLLM
-func (m *K8sManager) buildPodSpec() corev1.PodSpec {
+func (m *K8sManager) buildPodSpec(modelConfig *ModelConfig) corev1.PodSpec {
 	return corev1.PodSpec{
 		TerminationGracePeriodSeconds: func() *int64 { t := int64(0); return &t }(),
 		Volumes: []corev1.Volume{
@@ -229,28 +278,8 @@ func (m *K8sManager) buildPodSpec() corev1.PodSpec {
 				Name:            "vllm",
 				Image:           "vllm/vllm-openai:latest",
 				ImagePullPolicy: corev1.PullIfNotPresent,
-				Command:         []string{"/bin/sh", "-c"},
-				Args: []string{
-					`python3 -m vllm.entrypoints.openai.api_server \
-  --model ${MODEL_NAME} \
-  --served-model-name ${SERVED_MODEL_NAME} \
-  --tensor-parallel-size ${TENSOR_PARALLEL_SIZE} \
-  --max-model-len ${MAX_MODEL_LEN} \
-  --gpu-memory-utilization ${GPU_MEMORY_UTILIZATION} \
-  ${ENABLE_CHUNKED_PREFILL:+--enable-chunked-prefill} \
-  --max-num-batched-tokens ${MAX_NUM_BATCHED_TOKENS} \
-  --max-num-seqs ${MAX_NUM_SEQS} \
-  --dtype ${DTYPE} \
-  ${DISABLE_CUSTOM_ALL_REDUCE:+--disable-custom-all-reduce} \
-  ${ENABLE_PREFIX_CACHING:+--enable-prefix-caching} \
-  --cpu-offload-gb ${CPU_OFFLOAD_GB} \
-  ${ENABLE_AUTO_TOOL_CHOICE:+--enable-auto-tool-choice} \
-  --tool-call-parser ${TOOL_CALL_PARSER} \
-  --host 0.0.0.0 \
-  --port 8000 \
-  --api-key token-abc123`,
-				},
-				Env: m.buildEnvVars(),
+				Args:            m.buildVLLMArgs(modelConfig),
+				Env:             m.buildSystemEnvVars(),
 				Ports: []corev1.ContainerPort{
 					{
 						ContainerPort: 8000,
@@ -335,147 +364,10 @@ func (m *K8sManager) buildPodSpec() corev1.PodSpec {
 	}
 }
 
-// buildEnvVars builds environment variables from ConfigMap and additional settings
-func (m *K8sManager) buildEnvVars() []corev1.EnvVar {
-	configMapName := m.config.ConfigMapName
+// buildSystemEnvVars builds system-level environment variables (non-model-specific)
+func (m *K8sManager) buildSystemEnvVars() []corev1.EnvVar {
 	envVars := []corev1.EnvVar{
-		// ConfigMap-based environment variables
-		{
-			Name: "MODEL_NAME",
-			ValueFrom: &corev1.EnvVarSource{
-				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-					Key:                  "MODEL_NAME",
-				},
-			},
-		},
-		{
-			Name: "SERVED_MODEL_NAME",
-			ValueFrom: &corev1.EnvVarSource{
-				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-					Key:                  "SERVED_MODEL_NAME",
-				},
-			},
-		},
-		{
-			Name: "TOOL_CALL_PARSER",
-			ValueFrom: &corev1.EnvVarSource{
-				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-					Key:                  "TOOL_CALL_PARSER",
-				},
-			},
-		},
-		{
-			Name: "REASONING_PARSER",
-			ValueFrom: &corev1.EnvVarSource{
-				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-					Key:                  "REASONING_PARSER",
-				},
-			},
-		},
-		{
-			Name: "TENSOR_PARALLEL_SIZE",
-			ValueFrom: &corev1.EnvVarSource{
-				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-					Key:                  "TENSOR_PARALLEL_SIZE",
-				},
-			},
-		},
-		{
-			Name: "MAX_MODEL_LEN",
-			ValueFrom: &corev1.EnvVarSource{
-				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-					Key:                  "MAX_MODEL_LEN",
-				},
-			},
-		},
-		{
-			Name: "GPU_MEMORY_UTILIZATION",
-			ValueFrom: &corev1.EnvVarSource{
-				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-					Key:                  "GPU_MEMORY_UTILIZATION",
-				},
-			},
-		},
-		{
-			Name: "ENABLE_CHUNKED_PREFILL",
-			ValueFrom: &corev1.EnvVarSource{
-				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-					Key:                  "ENABLE_CHUNKED_PREFILL",
-				},
-			},
-		},
-		{
-			Name: "MAX_NUM_BATCHED_TOKENS",
-			ValueFrom: &corev1.EnvVarSource{
-				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-					Key:                  "MAX_NUM_BATCHED_TOKENS",
-				},
-			},
-		},
-		{
-			Name: "MAX_NUM_SEQS",
-			ValueFrom: &corev1.EnvVarSource{
-				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-					Key:                  "MAX_NUM_SEQS",
-				},
-			},
-		},
-		{
-			Name: "DTYPE",
-			ValueFrom: &corev1.EnvVarSource{
-				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-					Key:                  "DTYPE",
-				},
-			},
-		},
-		{
-			Name: "DISABLE_CUSTOM_ALL_REDUCE",
-			ValueFrom: &corev1.EnvVarSource{
-				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-					Key:                  "DISABLE_CUSTOM_ALL_REDUCE",
-				},
-			},
-		},
-		{
-			Name: "ENABLE_PREFIX_CACHING",
-			ValueFrom: &corev1.EnvVarSource{
-				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-					Key:                  "ENABLE_PREFIX_CACHING",
-				},
-			},
-		},
-		{
-			Name: "CPU_OFFLOAD_GB",
-			ValueFrom: &corev1.EnvVarSource{
-				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-					Key:                  "CPU_OFFLOAD_GB",
-				},
-			},
-		},
-		{
-			Name: "ENABLE_AUTO_TOOL_CHOICE",
-			ValueFrom: &corev1.EnvVarSource{
-				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-					Key:                  "ENABLE_AUTO_TOOL_CHOICE",
-				},
-			},
-		},
-		// Additional environment variables for optimization
+		// System optimization environment variables
 		{
 			Name:  "TORCH_CUDA_ARCH_LIST",
 			Value: "8.6",

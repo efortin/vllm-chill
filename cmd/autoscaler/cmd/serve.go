@@ -9,16 +9,14 @@ import (
 )
 
 var (
-	namespace      string
-	deployment     string
-	configMapName  string
-	targetHost     string
-	targetPort     string
-	idleTimeout    string
-	managedTimeout string
-	port           string
-	logOutput      bool
-	modelID        string
+	namespace     string
+	deployment    string
+	configMapName string
+	targetSocket  string
+	idleTimeout   string
+	port          string
+	logOutput     bool
+	modelID       string
 )
 
 var serveCmd = &cobra.Command{
@@ -33,16 +31,14 @@ The proxy will:
 - Proxy all requests to the vLLM backend`,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		config := &proxy.Config{
-			Namespace:      namespace,
-			Deployment:     deployment,
-			ConfigMapName:  configMapName,
-			TargetHost:     targetHost,
-			TargetPort:     targetPort,
-			IdleTimeout:    idleTimeout,
-			ManagedTimeout: managedTimeout,
-			Port:           port,
-			LogOutput:      logOutput,
-			ModelID:        modelID,
+			Namespace:     namespace,
+			Deployment:    deployment,
+			ConfigMapName: configMapName,
+			TargetSocket:  targetSocket,
+			IdleTimeout:   idleTimeout,
+			Port:          port,
+			LogOutput:     logOutput,
+			ModelID:       modelID,
 		}
 
 		scaler, err := proxy.NewAutoScaler(config)
@@ -54,33 +50,30 @@ The proxy will:
 		scaler.SetVersion(version, commit, buildDate)
 
 		log.Printf("Starting vLLM AutoScaler on :%s", port)
-		log.Printf("   Target: http://%s:%s", targetHost, targetPort)
+		log.Printf("   Target: unix://%s", targetSocket)
 		log.Printf("   Deployment: %s/%s", namespace, deployment)
 		log.Printf("   ConfigMap: %s/%s", namespace, configMapName)
 		log.Printf("   Model ID: %s", modelID)
 		log.Printf("   Idle timeout: %s", idleTimeout)
-		log.Printf("   Managed timeout: %s", managedTimeout)
 		if logOutput {
 			log.Printf("   Output logging: enabled")
 		}
 
-		return scaler.Start()
+		return scaler.Run()
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(serveCmd)
 
-	serveCmd.Flags().StringVar(&namespace, "namespace", getEnvOrDefault("VLLM_NAMESPACE", "ai-apps"), "Kubernetes namespace")
+	serveCmd.Flags().StringVar(&namespace, "namespace", getEnvOrDefault("VLLM_NAMESPACE", "vllm"), "Kubernetes namespace")
 	serveCmd.Flags().StringVar(&deployment, "deployment", getEnvOrDefault("VLLM_DEPLOYMENT", "vllm"), "Deployment name")
 	serveCmd.Flags().StringVar(&configMapName, "configmap", getEnvOrDefault("VLLM_CONFIGMAP", "vllm-config"), "ConfigMap name for model configuration")
-	serveCmd.Flags().StringVar(&targetHost, "target-host", getEnvOrDefault("VLLM_TARGET", "vllm-svc"), "Target service host")
-	serveCmd.Flags().StringVar(&targetPort, "target-port", getEnvOrDefault("VLLM_PORT", "80"), "Target service port")
+	serveCmd.Flags().StringVar(&targetSocket, "target-socket", getEnvOrDefault("VLLM_SOCKET", "/tmp/vllm.sock"), "Unix socket path to vLLM")
 	serveCmd.Flags().StringVar(&idleTimeout, "idle-timeout", getEnvOrDefault("IDLE_TIMEOUT", "5m"), "Idle timeout before scaling to 0")
-	serveCmd.Flags().StringVar(&managedTimeout, "managed-timeout", getEnvOrDefault("MANAGED_TIMEOUT", "5m"), "Timeout for managed operations")
 	serveCmd.Flags().StringVar(&port, "port", getEnvOrDefault("PORT", "8080"), "HTTP server port")
 	serveCmd.Flags().StringVar(&modelID, "model-id", getEnvOrDefault("MODEL_ID", ""), "Model ID to load from VLLMModel CRD (required)")
-	// Managed mode and metrics are now always enabled
+	// vLLM is now always managed by the autoscaler
 	serveCmd.Flags().BoolVar(&logOutput, "log-output", getEnvOrDefault("LOG_OUTPUT", "false") == "true", "Log response bodies (use with caution, can be verbose)")
 }
 

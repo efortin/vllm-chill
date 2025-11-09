@@ -1,4 +1,4 @@
-package proxy
+package kubernetes
 
 import (
 	"context"
@@ -126,10 +126,27 @@ func TestK8sManager_EnsureDeployment(t *testing.T) {
 	}
 	manager := NewK8sManager(clientset, config)
 
+	modelConfig := &ModelConfig{
+		ModelName:              "test/model",
+		ServedModelName:        "test-model",
+		TensorParallelSize:     "1",
+		MaxModelLen:            "8192",
+		GPUMemoryUtilization:   "0.9",
+		EnableChunkedPrefill:   "false",
+		MaxNumBatchedTokens:    "8192",
+		MaxNumSeqs:             "256",
+		Dtype:                  "auto",
+		DisableCustomAllReduce: "false",
+		EnablePrefixCaching:    "true",
+		CPUOffloadGB:           "0",
+		EnableAutoToolChoice:   "true",
+		ToolCallParser:         "hermes",
+	}
+
 	ctx := context.Background()
 
 	t.Run("create new deployment", func(t *testing.T) {
-		err := manager.ensureDeployment(ctx)
+		err := manager.ensureDeployment(ctx, modelConfig)
 		if err != nil {
 			t.Fatalf("ensureDeployment() error = %v", err)
 		}
@@ -149,7 +166,7 @@ func TestK8sManager_EnsureDeployment(t *testing.T) {
 	})
 
 	t.Run("deployment already exists", func(t *testing.T) {
-		err := manager.ensureDeployment(ctx)
+		err := manager.ensureDeployment(ctx, modelConfig)
 		if err != nil {
 			t.Fatalf("ensureDeployment() error = %v", err)
 		}
@@ -204,63 +221,46 @@ func TestK8sManager_EnsureVLLMResources(t *testing.T) {
 	}
 }
 
-func TestK8sManager_BuildEnvVars(t *testing.T) {
+func TestK8sManager_BuildSystemEnvVars(t *testing.T) {
 	config := &Config{
 		ConfigMapName: "test-config",
 	}
 	manager := NewK8sManager(nil, config)
 
-	envVars := manager.buildEnvVars()
+	envVars := manager.buildSystemEnvVars()
 
-	// Check that all required env vars are present
-	requiredVars := []string{
-		"MODEL_NAME",
-		"SERVED_MODEL_NAME",
-		"TOOL_CALL_PARSER",
-		"REASONING_PARSER",
-		"TENSOR_PARALLEL_SIZE",
-		"MAX_MODEL_LEN",
-		"GPU_MEMORY_UTILIZATION",
-		"ENABLE_CHUNKED_PREFILL",
-		"MAX_NUM_BATCHED_TOKENS",
-		"MAX_NUM_SEQS",
-		"DTYPE",
-		"DISABLE_CUSTOM_ALL_REDUCE",
-		"ENABLE_PREFIX_CACHING",
-		"CPU_OFFLOAD_GB",
-		"ENABLE_AUTO_TOOL_CHOICE",
+	// Check that system env vars are present (no model-specific vars)
+	requiredSystemVars := []string{
+		"TORCH_CUDA_ARCH_LIST",
+		"VLLM_TORCH_COMPILE_CACHE_DIR",
+		"HF_HUB_ENABLE_HF_TRANSFER",
+		"OMP_NUM_THREADS",
+		"HF_TOKEN",
+		"HUGGING_FACE_HUB_TOKEN",
 	}
 
 	envVarMap := make(map[string]bool)
-	// These env vars have hardcoded values or use SecretKeyRef, not ConfigMapKeyRef
-	skipConfigMapCheck := map[string]bool{
-		"HUGGING_FACE_HUB_TOKEN":       true,
-		"TORCH_CUDA_ARCH_LIST":         true,
-		"OMP_NUM_THREADS":              true,
-		"HF_TOKEN":                     true,
-		"VLLM_TORCH_COMPILE_CACHE_DIR": true,
-		"HF_HUB_ENABLE_HF_TRANSFER":    true,
-	}
-
 	for _, ev := range envVars {
 		envVarMap[ev.Name] = true
-		// Skip env vars that don't use ConfigMapKeyRef
-		if skipConfigMapCheck[ev.Name] {
-			continue
-		}
-		// Verify all other env vars reference the correct ConfigMap
-		if ev.ValueFrom == nil || ev.ValueFrom.ConfigMapKeyRef == nil {
-			t.Errorf("Env var %s missing ConfigMapKeyRef", ev.Name)
-			continue
-		}
-		if ev.ValueFrom.ConfigMapKeyRef.Name != "test-config" {
-			t.Errorf("Env var %s references wrong ConfigMap: %s", ev.Name, ev.ValueFrom.ConfigMapKeyRef.Name)
+	}
+
+	for _, required := range requiredSystemVars {
+		if !envVarMap[required] {
+			t.Errorf("Missing required system env var: %s", required)
 		}
 	}
 
-	for _, required := range requiredVars {
-		if !envVarMap[required] {
-			t.Errorf("Missing required env var: %s", required)
+	// Ensure model-specific vars are NOT present
+	modelSpecificVars := []string{
+		"MODEL_NAME",
+		"SERVED_MODEL_NAME",
+		"TOOL_CALL_PARSER",
+		"TENSOR_PARALLEL_SIZE",
+	}
+
+	for _, modelVar := range modelSpecificVars {
+		if envVarMap[modelVar] {
+			t.Errorf("Model-specific env var %s should not be in system env vars", modelVar)
 		}
 	}
 }
@@ -271,7 +271,24 @@ func TestK8sManager_BuildPodSpec(t *testing.T) {
 	}
 	manager := NewK8sManager(nil, config)
 
-	podSpec := manager.buildPodSpec()
+	modelConfig := &ModelConfig{
+		ModelName:              "test/model",
+		ServedModelName:        "test-model",
+		TensorParallelSize:     "1",
+		MaxModelLen:            "8192",
+		GPUMemoryUtilization:   "0.9",
+		EnableChunkedPrefill:   "false",
+		MaxNumBatchedTokens:    "8192",
+		MaxNumSeqs:             "256",
+		Dtype:                  "auto",
+		DisableCustomAllReduce: "false",
+		EnablePrefixCaching:    "true",
+		CPUOffloadGB:           "0",
+		EnableAutoToolChoice:   "true",
+		ToolCallParser:         "hermes",
+	}
+
+	podSpec := manager.buildPodSpec(modelConfig)
 
 	if len(podSpec.Containers) != 1 {
 		t.Fatalf("Expected 1 container, got %d", len(podSpec.Containers))
@@ -303,6 +320,23 @@ func TestK8sManager_BuildPodSpec(t *testing.T) {
 
 	if container.ReadinessProbe == nil {
 		t.Error("ReadinessProbe is nil")
+	}
+
+	// Verify args are built from modelConfig (not env vars)
+	if len(container.Args) == 0 {
+		t.Error("Container Args is empty")
+	}
+
+	// Check that args contain the model name directly
+	argsContainModel := false
+	for i, arg := range container.Args {
+		if arg == "--model" && i+1 < len(container.Args) && container.Args[i+1] == "test/model" {
+			argsContainModel = true
+			break
+		}
+	}
+	if !argsContainModel {
+		t.Error("Args should contain --model test/model")
 	}
 }
 

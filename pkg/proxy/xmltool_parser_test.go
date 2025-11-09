@@ -1,12 +1,13 @@
-package proxy
+package proxy_test
 
 import (
 	"encoding/json"
 	"os"
-	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
+	"github.com/efortin/vllm-chill/pkg/parser"
 )
 
 // TestCase represents a test case from the JSON file
@@ -23,99 +24,102 @@ type ExpectedTool struct {
 	Arguments map[string]interface{} `json:"arguments"`
 }
 
-func loadTestCases(t *testing.T) []TestCase {
-	data, err := os.ReadFile("../../test/data/tool-calls.json")
-	require.NoError(t, err, "Failed to read test data file")
-
+var _ = Describe("XMLToolParser", func() {
 	var testCases []TestCase
-	err = json.Unmarshal(data, &testCases)
-	require.NoError(t, err, "Failed to parse test data JSON")
 
-	return testCases
-}
+	BeforeEach(func() {
+		data, err := os.ReadFile("../../test/data/tool-calls.json")
+		Expect(err).NotTo(HaveOccurred(), "Failed to read test data file")
 
-func TestXMLToolParser_AllTestCases(t *testing.T) {
-	testCases := loadTestCases(t)
+		err = json.Unmarshal(data, &testCases)
+		Expect(err).NotTo(HaveOccurred(), "Failed to parse test data JSON")
+	})
 
-	for _, tc := range testCases {
-		t.Run(tc.ID+"_"+tc.Description, func(t *testing.T) {
-			// Parse the XML
-			toolCalls := parseXMLToolCalls(tc.ModelOutputXML)
+	Describe("All test cases from JSON", func() {
+		It("should process all test cases correctly", func() {
+			for _, tc := range testCases {
+				By(tc.ID + "_" + tc.Description)
 
-			// Verify we got the expected number of tool calls
-			require.Len(t, toolCalls, len(tc.ExpectedTools),
-				"Expected %d tool calls but got %d", len(tc.ExpectedTools), len(toolCalls))
+				// Parse the XML
+				toolCalls := parser.ParseXMLToolCalls(tc.ModelOutputXML)
 
-			// Verify each tool call
-			for i, expected := range tc.ExpectedTools {
-				actual := toolCalls[i]
+				// Verify we got the expected number of tool calls
+				Expect(toolCalls).To(HaveLen(len(tc.ExpectedTools)),
+					"Expected %d tool calls but got %d", len(tc.ExpectedTools), len(toolCalls))
 
-				// Verify tool name
-				assert.Equal(t, expected.Name, actual.Function.Name,
-					"Tool call %d: name mismatch", i)
+				// Verify each tool call
+				for i, expected := range tc.ExpectedTools {
+					actual := toolCalls[i]
 
-				// Parse actual arguments JSON
-				var actualArgs map[string]interface{}
-				err := json.Unmarshal([]byte(actual.Function.Arguments), &actualArgs)
-				require.NoError(t, err, "Tool call %d: failed to parse arguments JSON", i)
+					// Verify tool name
+					Expect(actual.Function.Name).To(Equal(expected.Name),
+						"Tool call %d: name mismatch", i)
 
-				// Compare arguments
-				assert.Equal(t, expected.Arguments, actualArgs,
-					"Tool call %d: arguments mismatch", i)
+					// Parse actual arguments JSON
+					var actualArgs map[string]interface{}
+					err := json.Unmarshal([]byte(actual.Function.Arguments), &actualArgs)
+					Expect(err).NotTo(HaveOccurred(), "Tool call %d: failed to parse arguments JSON", i)
 
-				// Verify type is set correctly
-				assert.Equal(t, "function", actual.Type,
-					"Tool call %d: type should be 'function'", i)
+					// Compare arguments
+					Expect(actualArgs).To(Equal(expected.Arguments),
+						"Tool call %d: arguments mismatch", i)
 
-				// Verify ID is set
-				assert.NotEmpty(t, actual.ID,
-					"Tool call %d: ID should not be empty", i)
+					// Verify type is set correctly
+					Expect(actual.Type).To(Equal("function"),
+						"Tool call %d: type should be 'function'", i)
+
+					// Verify ID is set
+					Expect(actual.ID).NotTo(BeEmpty(),
+						"Tool call %d: ID should not be empty", i)
+				}
 			}
 		})
-	}
-}
+	})
 
-// TestXMLToolParser_BasicWellFormed tests case 01: basic well-formed tool call
-func TestXMLToolParser_BasicWellFormed(t *testing.T) {
-	xml := `<tool_call>
+	Describe("Individual test cases", func() {
+		Context("basic well-formed tool call", func() {
+			It("should parse correctly", func() {
+				xml := `<tool_call>
   <tool_name>web_search</tool_name>
   <tool_arguments>{"query":"keda http addon timeout","top_k":5}</tool_arguments>
 </tool_call>`
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
-	assert.Equal(t, "web_search", toolCalls[0].Function.Name)
+				Expect(toolCalls).To(HaveLen(1))
+				Expect(toolCalls[0].Function.Name).To(Equal("web_search"))
 
-	var args map[string]interface{}
-	err := json.Unmarshal([]byte(toolCalls[0].Function.Arguments), &args)
-	require.NoError(t, err)
-	assert.Equal(t, "keda http addon timeout", args["query"])
-	assert.Equal(t, float64(5), args["top_k"])
-}
+				var args map[string]interface{}
+				err := json.Unmarshal([]byte(toolCalls[0].Function.Arguments), &args)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(args["query"]).To(Equal("keda http addon timeout"))
+				Expect(args["top_k"]).To(Equal(float64(5)))
+			})
+		})
 
-// TestXMLToolParser_CDATA tests case 02: CDATA wrapped arguments
-func TestXMLToolParser_CDATA(t *testing.T) {
-	xml := `<tool_call>
+		Context("CDATA wrapped arguments", func() {
+			It("should parse correctly", func() {
+				xml := `<tool_call>
   <tool_name>get_metrics</tool_name>
   <tool_arguments><![CDATA[{"path":"/metrics","filter":"vllm:num_requests_running|vllm:engine_state&debug"}]]></tool_arguments>
 </tool_call>`
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
-	assert.Equal(t, "get_metrics", toolCalls[0].Function.Name)
+				Expect(toolCalls).To(HaveLen(1))
+				Expect(toolCalls[0].Function.Name).To(Equal("get_metrics"))
 
-	var args map[string]interface{}
-	err := json.Unmarshal([]byte(toolCalls[0].Function.Arguments), &args)
-	require.NoError(t, err)
-	assert.Equal(t, "/metrics", args["path"])
-	assert.Equal(t, "vllm:num_requests_running|vllm:engine_state&debug", args["filter"])
-}
+				var args map[string]interface{}
+				err := json.Unmarshal([]byte(toolCalls[0].Function.Arguments), &args)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(args["path"]).To(Equal("/metrics"))
+				Expect(args["filter"]).To(Equal("vllm:num_requests_running|vllm:engine_state&debug"))
+			})
+		})
 
-// TestXMLToolParser_MultipleToolCalls tests case 03: multiple tool calls
-func TestXMLToolParser_MultipleToolCalls(t *testing.T) {
-	xml := `<tool_call>
+		Context("multiple tool calls", func() {
+			It("should parse all calls correctly", func() {
+				xml := `<tool_call>
   <tool_name>k8s.scale</tool_name>
   <tool_arguments>{"namespace":"ai-apps","deployment":"vllm","replicas":0}</tool_arguments>
 </tool_call>
@@ -124,59 +128,63 @@ func TestXMLToolParser_MultipleToolCalls(t *testing.T) {
   <tool_arguments>{"channel":"ops","message":"vLLM scaled to 0 after 5m idle"}</tool_arguments>
 </tool_call>`
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 2)
-	assert.Equal(t, "k8s.scale", toolCalls[0].Function.Name)
-	assert.Equal(t, "notify", toolCalls[1].Function.Name)
-}
+				Expect(toolCalls).To(HaveLen(2))
+				Expect(toolCalls[0].Function.Name).To(Equal("k8s.scale"))
+				Expect(toolCalls[1].Function.Name).To(Equal("notify"))
+			})
+		})
 
-// TestXMLToolParser_FunctionCallVariant tests case 04: <function_call> instead of <tool_call>
-func TestXMLToolParser_FunctionCallVariant(t *testing.T) {
-	xml := `<function_call>
+		Context("function_call variant", func() {
+			It("should parse <function_call> tags", func() {
+				xml := `<function_call>
   <name>http.get</name>
   <arguments>{"url":"http://localhost:8000/is_sleeping","timeout":2}</arguments>
 </function_call>`
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
-	assert.Equal(t, "http.get", toolCalls[0].Function.Name)
-}
+				Expect(toolCalls).To(HaveLen(1))
+				Expect(toolCalls[0].Function.Name).To(Equal("http.get"))
+			})
+		})
 
-// TestXMLToolParser_TruncatedOutput tests case 05: missing closing tag
-func TestXMLToolParser_TruncatedOutput(t *testing.T) {
-	xml := `<tool_call>
+		Context("truncated output", func() {
+			It("should handle missing closing tags", func() {
+				xml := `<tool_call>
   <tool_name>k8s.annotate</tool_name>
   <tool_arguments>{"namespace":"ai-apps","deployment":"vllm","annotation":"last-activity","value":"1730515200"}
 <!-- missing </tool_call> -->`
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
-	assert.Equal(t, "k8s.annotate", toolCalls[0].Function.Name)
-}
+				Expect(toolCalls).To(HaveLen(1))
+				Expect(toolCalls[0].Function.Name).To(Equal("k8s.annotate"))
+			})
+		})
 
-// TestXMLToolParser_EscapedEntities tests case 06: XML entity escaping
-func TestXMLToolParser_EscapedEntities(t *testing.T) {
-	xml := `<tool_call>
+		Context("escaped XML entities", func() {
+			It("should handle &amp; and other entities", func() {
+				xml := `<tool_call>
   <tool_name>log.search</tool_name>
   <tool_arguments>{"pattern":"WARNING.*api_server.py:966","since":"-15m","where":"pod:vllm &amp; ns:ai-apps"}</tool_arguments>
 </tool_call>`
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
+				Expect(toolCalls).To(HaveLen(1))
 
-	var args map[string]interface{}
-	err := json.Unmarshal([]byte(toolCalls[0].Function.Arguments), &args)
-	require.NoError(t, err)
-	assert.Equal(t, "pod:vllm & ns:ai-apps", args["where"])
-}
+				var args map[string]interface{}
+				err := json.Unmarshal([]byte(toolCalls[0].Function.Arguments), &args)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(args["where"]).To(Equal("pod:vllm & ns:ai-apps"))
+			})
+		})
 
-// TestXMLToolParser_NestedXMLArguments tests case 07: nested XML instead of JSON
-func TestXMLToolParser_NestedXMLArguments(t *testing.T) {
-	xml := `<tool_call>
+		Context("nested XML arguments", func() {
+			It("should convert nested XML to JSON", func() {
+				xml := `<tool_call>
   <tool_name>k8s.scale</tool_name>
   <tool_arguments>
     <args>
@@ -187,37 +195,39 @@ func TestXMLToolParser_NestedXMLArguments(t *testing.T) {
   </tool_arguments>
 </tool_call>`
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
-	assert.Equal(t, "k8s.scale", toolCalls[0].Function.Name)
+				Expect(toolCalls).To(HaveLen(1))
+				Expect(toolCalls[0].Function.Name).To(Equal("k8s.scale"))
 
-	var args map[string]interface{}
-	err := json.Unmarshal([]byte(toolCalls[0].Function.Arguments), &args)
-	require.NoError(t, err)
-	assert.Equal(t, "ai-apps", args["namespace"])
-	assert.Equal(t, "vllm", args["deployment"])
-	assert.Equal(t, float64(1), args["replicas"])
-}
+				var args map[string]interface{}
+				err := json.Unmarshal([]byte(toolCalls[0].Function.Arguments), &args)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(args["namespace"]).To(Equal("ai-apps"))
+				Expect(args["deployment"]).To(Equal("vllm"))
+				Expect(args["replicas"]).To(Equal(float64(1)))
+			})
+		})
 
-// TestXMLToolParser_WhitespaceInTags tests case 08: whitespace around tag content
-func TestXMLToolParser_WhitespaceInTags(t *testing.T) {
-	xml := `<tool_call>
+		Context("whitespace in tags", func() {
+			It("should trim whitespace from tag content", func() {
+				xml := `<tool_call>
   <tool_name>
     http.post
   </tool_name>
   <tool_arguments>{"url":"https://vllm.sir-alfred.io/sleep","body":{"level":2}}</tool_arguments>
 </tool_call>`
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
-	assert.Equal(t, "http.post", toolCalls[0].Function.Name)
-}
+				Expect(toolCalls).To(HaveLen(1))
+				Expect(toolCalls[0].Function.Name).To(Equal("http.post"))
+			})
+		})
 
-// TestXMLToolParser_SurroundingNoise tests case 09: text before/after tool call
-func TestXMLToolParser_SurroundingNoise(t *testing.T) {
-	xml := `<think>I'll check activity then scale down…</think>
+		Context("surrounding noise", func() {
+			It("should extract tool calls from mixed content", func() {
+				xml := `<think>I'll check activity then scale down…</think>
 Okay, scaling to zero now:
 <tool_call>
   <tool_name>k8s.scale</tool_name>
@@ -225,15 +235,16 @@ Okay, scaling to zero now:
 </tool_call>
 Done.`
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
-	assert.Equal(t, "k8s.scale", toolCalls[0].Function.Name)
-}
+				Expect(toolCalls).To(HaveLen(1))
+				Expect(toolCalls[0].Function.Name).To(Equal("k8s.scale"))
+			})
+		})
 
-// TestXMLToolParser_StreamingFragments tests case 10: streaming with part attribute
-func TestXMLToolParser_StreamingFragments(t *testing.T) {
-	xml := `<tool_call part="1/2">
+		Context("streaming fragments", func() {
+			It("should merge fragments with part attribute", func() {
+				xml := `<tool_call part="1/2">
   <tool_name>log.search</tool_name>
   <tool_arguments>{"pattern":"vllm:num_requests_running","since":"-5m",</tool_arguments>
 </tool_call>
@@ -241,60 +252,64 @@ func TestXMLToolParser_StreamingFragments(t *testing.T) {
   <tool_arguments>"where":"pod:vllm"}</tool_arguments>
 </tool_call>`
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
-	assert.Equal(t, "log.search", toolCalls[0].Function.Name)
+				Expect(toolCalls).To(HaveLen(1))
+				Expect(toolCalls[0].Function.Name).To(Equal("log.search"))
 
-	var args map[string]interface{}
-	err := json.Unmarshal([]byte(toolCalls[0].Function.Arguments), &args)
-	require.NoError(t, err)
-	assert.Equal(t, "vllm:num_requests_running", args["pattern"])
-	assert.Equal(t, "pod:vllm", args["where"])
-}
+				var args map[string]interface{}
+				err := json.Unmarshal([]byte(toolCalls[0].Function.Arguments), &args)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(args["pattern"]).To(Equal("vllm:num_requests_running"))
+				Expect(args["where"]).To(Equal("pod:vllm"))
+			})
+		})
 
-// TestXMLToolParser_WrongTagName tests case 11: <arguments> instead of <tool_arguments>
-func TestXMLToolParser_WrongTagName(t *testing.T) {
-	xml := `<tool_call>
+		Context("wrong tag names", func() {
+			It("should handle <arguments> instead of <tool_arguments>", func() {
+				xml := `<tool_call>
   <tool_name>notify</tool_name>
   <arguments>{"channel":"ops","message":"wake in progress"}</arguments>
 </tool_call>`
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
-	assert.Equal(t, "notify", toolCalls[0].Function.Name)
-}
+				Expect(toolCalls).To(HaveLen(1))
+				Expect(toolCalls[0].Function.Name).To(Equal("notify"))
+			})
+		})
 
-// TestXMLToolParser_NamespacePrefix tests case 12: XML namespaces
-func TestXMLToolParser_NamespacePrefix(t *testing.T) {
-	xml := `<qwen:tool_call xmlns:qwen="http://qwen.ai/schema">
+		Context("XML namespaces", func() {
+			It("should handle namespace prefixes", func() {
+				xml := `<qwen:tool_call xmlns:qwen="http://qwen.ai/schema">
   <qwen:tool_name>k8s.annotate</qwen:tool_name>
   <qwen:tool_arguments>{"namespace":"ai-apps","deployment":"vllm","annotation":"last-activity","value":"1730515200"}</qwen:tool_arguments>
 </qwen:tool_call>`
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
-	assert.Equal(t, "k8s.annotate", toolCalls[0].Function.Name)
-}
+				Expect(toolCalls).To(HaveLen(1))
+				Expect(toolCalls[0].Function.Name).To(Equal("k8s.annotate"))
+			})
+		})
 
-// TestXMLToolParser_ComplexToolName tests case 13: tool name with special chars
-func TestXMLToolParser_ComplexToolName(t *testing.T) {
-	xml := `<tool_call>
+		Context("complex tool names", func() {
+			It("should handle special characters in tool names", func() {
+				xml := `<tool_call>
   <tool_name>k8s.rbac/patch-role</tool_name>
   <tool_arguments>{"namespace":"ai-apps","name":"vllm-scaler","rules":[{"apiGroups":["apps"],"resources":["deployments/scale"],"verbs":["patch","update"]}]}</tool_arguments>
 </tool_call>`
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
-	assert.Equal(t, "k8s.rbac/patch-role", toolCalls[0].Function.Name)
-}
+				Expect(toolCalls).To(HaveLen(1))
+				Expect(toolCalls[0].Function.Name).To(Equal("k8s.rbac/patch-role"))
+			})
+		})
 
-// TestXMLToolParser_MarkdownCodeBlock tests case 14: XML in markdown code block
-func TestXMLToolParser_MarkdownCodeBlock(t *testing.T) {
-	xml := `Here is the call:
+		Context("markdown code blocks", func() {
+			It("should extract XML from markdown code blocks", func() {
+				xml := `Here is the call:
 ` + "```xml" + `
 <tool_call>
   <tool_name>http.get</tool_name>
@@ -302,94 +317,100 @@ func TestXMLToolParser_MarkdownCodeBlock(t *testing.T) {
 </tool_call>
 ` + "```"
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
-	assert.Equal(t, "http.get", toolCalls[0].Function.Name)
-}
+				Expect(toolCalls).To(HaveLen(1))
+				Expect(toolCalls[0].Function.Name).To(Equal("http.get"))
+			})
+		})
 
-// TestXMLToolParser_CDATAWrapper tests case 15: CDATA wrapping entire tool_call
-func TestXMLToolParser_CDATAWrapper(t *testing.T) {
-	xml := `<![CDATA[
+		Context("CDATA wrapper", func() {
+			It("should handle CDATA wrapping entire tool_call", func() {
+				xml := `<![CDATA[
 <tool_call>
   <tool_name>k8s.scale</tool_name>
   <tool_arguments>{"namespace":"ai-apps","deployment":"vllm","replicas":1}</tool_arguments>
 </tool_call>
 ]]>`
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
-	assert.Equal(t, "k8s.scale", toolCalls[0].Function.Name)
-}
+				Expect(toolCalls).To(HaveLen(1))
+				Expect(toolCalls[0].Function.Name).To(Equal("k8s.scale"))
+			})
+		})
 
-// TestXMLToolParser_EmptyArguments tests case 16: empty tool_arguments
-func TestXMLToolParser_EmptyArguments(t *testing.T) {
-	xml := `<tool_call>
+		Context("empty arguments", func() {
+			It("should handle empty tool_arguments", func() {
+				xml := `<tool_call>
   <tool_name>server_info</tool_name>
   <tool_arguments></tool_arguments>
 </tool_call>`
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
-	assert.Equal(t, "server_info", toolCalls[0].Function.Name)
+				Expect(toolCalls).To(HaveLen(1))
+				Expect(toolCalls[0].Function.Name).To(Equal("server_info"))
 
-	var args map[string]interface{}
-	err := json.Unmarshal([]byte(toolCalls[0].Function.Arguments), &args)
-	require.NoError(t, err)
-	assert.Empty(t, args)
-}
+				var args map[string]interface{}
+				err := json.Unmarshal([]byte(toolCalls[0].Function.Arguments), &args)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(args).To(BeEmpty())
+			})
+		})
 
-// TestXMLToolParser_BOMAndUnicodeWhitespace tests case 17: BOM and unicode whitespace
-func TestXMLToolParser_BOMAndUnicodeWhitespace(t *testing.T) {
-	xml := "\uFEFF \t \n<tool_call>\n  <tool_name>k8s.get</tool_name>\n  <tool_arguments>{\"kind\":\"Deployment\",\"namespace\":\"ai-apps\",\"name\":\"vllm\"}</tool_arguments>\n</tool_call>"
+		Context("BOM and unicode whitespace", func() {
+			It("should handle BOM and unicode whitespace", func() {
+				xml := "\uFEFF \t \n<tool_call>\n  <tool_name>k8s.get</tool_name>\n  <tool_arguments>{\"kind\":\"Deployment\",\"namespace\":\"ai-apps\",\"name\":\"vllm\"}</tool_arguments>\n</tool_call>"
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
-	assert.Equal(t, "k8s.get", toolCalls[0].Function.Name)
-}
+				Expect(toolCalls).To(HaveLen(1))
+				Expect(toolCalls[0].Function.Name).To(Equal("k8s.get"))
+			})
+		})
 
-// TestXMLToolParser_EscapedQuotes tests case 18: escaped quotes in JSON
-func TestXMLToolParser_EscapedQuotes(t *testing.T) {
-	xml := `<tool_call>
+		Context("escaped quotes", func() {
+			It("should handle escaped quotes in JSON", func() {
+				xml := `<tool_call>
   <tool_name>notify</tool_name>
   <tool_arguments>{"channel":"ops","message":"Scaled to 0 after \"idle\" window"}</tool_arguments>
 </tool_call>`
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
+				Expect(toolCalls).To(HaveLen(1))
 
-	var args map[string]interface{}
-	err := json.Unmarshal([]byte(toolCalls[0].Function.Arguments), &args)
-	require.NoError(t, err)
-	assert.Equal(t, `Scaled to 0 after "idle" window`, args["message"])
-}
+				var args map[string]interface{}
+				err := json.Unmarshal([]byte(toolCalls[0].Function.Arguments), &args)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(args["message"]).To(Equal(`Scaled to 0 after "idle" window`))
+			})
+		})
 
-// TestXMLToolParser_ComplexJSON tests case 19: complex nested JSON
-func TestXMLToolParser_ComplexJSON(t *testing.T) {
-	xml := `<tool_call>
+		Context("complex JSON", func() {
+			It("should handle complex nested JSON", func() {
+				xml := `<tool_call>
   <tool_name>http.post</tool_name>
   <tool_arguments>{"url":"https://vllm.sir-alfred.io/sleep?level=2","headers":{"Authorization":"Bearer token-abc123"},"body":{}}</tool_arguments>
 </tool_call>`
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
+				Expect(toolCalls).To(HaveLen(1))
 
-	var args map[string]interface{}
-	err := json.Unmarshal([]byte(toolCalls[0].Function.Arguments), &args)
-	require.NoError(t, err)
-	assert.Equal(t, "https://vllm.sir-alfred.io/sleep?level=2", args["url"])
-	headers := args["headers"].(map[string]interface{})
-	assert.Equal(t, "Bearer token-abc123", headers["Authorization"])
-}
+				var args map[string]interface{}
+				err := json.Unmarshal([]byte(toolCalls[0].Function.Arguments), &args)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(args["url"]).To(Equal("https://vllm.sir-alfred.io/sleep?level=2"))
+				headers := args["headers"].(map[string]interface{})
+				Expect(headers["Authorization"]).To(Equal("Bearer token-abc123"))
+			})
+		})
 
-// TestXMLToolParser_WrapperElement tests case 20: spurious wrapper element
-func TestXMLToolParser_WrapperElement(t *testing.T) {
-	xml := `<response>
+		Context("wrapper element", func() {
+			It("should extract tool calls from wrapper elements", func() {
+				xml := `<response>
   <meta>ignored</meta>
   <tool_call>
     <tool_name>k8s.annotate</tool_name>
@@ -397,8 +418,11 @@ func TestXMLToolParser_WrapperElement(t *testing.T) {
   </tool_call>
 </response>`
 
-	toolCalls := parseXMLToolCalls(xml)
+				toolCalls := parser.ParseXMLToolCalls(xml)
 
-	require.Len(t, toolCalls, 1)
-	assert.Equal(t, "k8s.annotate", toolCalls[0].Function.Name)
-}
+				Expect(toolCalls).To(HaveLen(1))
+				Expect(toolCalls[0].Function.Name).To(Equal("k8s.annotate"))
+			})
+		})
+	})
+})

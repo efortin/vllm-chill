@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/efortin/vllm-chill/pkg/stats"
 )
 
 // responseWriter wraps http.ResponseWriter to capture status code and response size
@@ -25,15 +27,17 @@ type responseWriter struct {
 	xmlDetectionStart  time.Time                // When XML detection was activated
 	chunkBuffer        []map[string]interface{} // Store parsed chunks for template
 	toolCallsDetected  bool                     // Whether native tool calls were detected
+	metrics            *stats.MetricsRecorder   // Metrics recorder for tracking operations
 }
 
 // newResponseWriter creates a new response writer wrapper
-func newResponseWriter(w http.ResponseWriter, captureBody bool) *responseWriter {
+func newResponseWriter(w http.ResponseWriter, captureBody bool, metrics *stats.MetricsRecorder) *responseWriter {
 	rw := &responseWriter{
 		ResponseWriter: w,
 		statusCode:     http.StatusOK,
 		captureBody:    captureBody,
 		sseBuffer:      &bytes.Buffer{},
+		metrics:        metrics,
 	}
 	if captureBody {
 		rw.body = &bytes.Buffer{}
@@ -141,9 +145,22 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 		accumulated := rw.accumulatedContent.String()
 		log.Printf("[XML-PARSER] Stream complete, parsing XML (length: %d)", len(accumulated))
 
+		// Record proxy latency for XML parsing
+		parseStart := time.Now()
 		toolCalls := parseXMLToolCalls(accumulated)
+		parseDuration := time.Since(parseStart)
+
+		if rw.metrics != nil {
+			rw.metrics.RecordProxyLatency("xml_parsing", parseDuration)
+		}
+
 		if len(toolCalls) > 0 {
 			log.Printf("[XML-PARSER] Successfully parsed %d tool calls, sending as single SSE chunk", len(toolCalls))
+
+			// Record successful XML parsing
+			if rw.metrics != nil {
+				rw.metrics.RecordXMLParsing(true, len(toolCalls))
+			}
 
 			// Build a single SSE chunk with the complete tool call
 			singleChunk := rw.buildSingleToolCallChunk(toolCalls[0])
@@ -184,6 +201,12 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 
 		// XML parsing failed, flush buffered chunks as-is
 		log.Printf("[XML-PARSER] Failed to parse XML, flushing %d buffered chunks", len(rw.chunkBuffer))
+
+		// Record failed XML parsing
+		if rw.metrics != nil {
+			rw.metrics.RecordXMLParsing(false, 0)
+		}
+
 		for _, chunk := range rw.chunkBuffer {
 			chunkJSON, _ := json.Marshal(chunk)
 			_, _ = rw.ResponseWriter.Write([]byte("data: "))
