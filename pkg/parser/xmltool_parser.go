@@ -1,3 +1,4 @@
+// Package parser provides functionality for parsing XML tool calls.
 package parser
 
 import (
@@ -618,7 +619,9 @@ func (p *XMLToolParser) generateToolCallID(index int) string {
 	return fmt.Sprintf("call_%c%d", 'a'+index%26, index/26)
 }
 
-// Convenience function for backward compatibility
+// ParseXMLToolCalls parses XML tool calls from content.
+//
+// This is a convenience function for backward compatibility.
 func ParseXMLToolCalls(content string) []ToolCall {
 	parser := NewXMLToolParser(true)
 	return parser.ParseXMLToolCalls(content)

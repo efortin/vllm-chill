@@ -35,9 +35,10 @@ Thank you for your interest in contributing to vLLM AutoScaler!
 3. Make your changes
 4. Add tests for your changes
 5. Run tests (`task test`)
-6. Commit your changes (`git commit -m 'Add amazing feature'`)
-7. Push to your branch (`git push origin feature/amazing-feature`)
-8. Open a Pull Request
+6. Run linter (`task lint`)
+7. Commit your changes (`git commit -m 'Add amazing feature'`)
+8. Push to your branch (`git push origin feature/amazing-feature`)
+9. Open a Pull Request
 
 ## Running Locally
 
@@ -63,6 +64,9 @@ go run ./cmd/autoscaler serve --namespace my-namespace --idle-timeout 10m
 ```bash
 # Run all tests
 task test
+
+# Run linter
+task lint
 
 # Run tests with coverage
 go test -v -race -coverprofile=coverage.out ./...

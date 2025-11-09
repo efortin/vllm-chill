@@ -1,3 +1,4 @@
+// Package scaling provides functionality for auto-scaling Kubernetes deployments.
 package scaling
 
 import (
@@ -13,8 +14,11 @@ import (
 )
 
 const (
+	// DefaultScaleUpTimeout is the default timeout for scaling up a deployment.
 	DefaultScaleUpTimeout = 2 * time.Minute
-	DefaultCheckInterval  = 10 * time.Second
+	// DefaultCheckInterval is the default interval for checking deployment status.
+	DefaultCheckInterval = 10 * time.Second
+	// DefaultScaleDownDelay is the default delay before scaling down.
 	DefaultScaleDownDelay = 5 * time.Minute
 )
 
@@ -262,7 +266,7 @@ func (as *K8sAutoScaler) checkAndScale(ctx context.Context) {
 
 // waitForDeploymentReady waits for the deployment to have ready replicas
 func (as *K8sAutoScaler) waitForDeploymentReady(ctx context.Context) error {
-	return wait.PollImmediate(2*time.Second, DefaultScaleUpTimeout, func() (bool, error) {
+	return wait.PollUntilContextTimeout(ctx, 2*time.Second, DefaultScaleUpTimeout, true, func(ctx context.Context) (bool, error) {
 		deployment, err := as.clientset.AppsV1().Deployments(as.config.Namespace).
 			Get(ctx, as.config.Deployment, metav1.GetOptions{})
 		if err != nil {
