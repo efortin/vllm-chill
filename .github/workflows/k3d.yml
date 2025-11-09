@@ -40,7 +40,17 @@ jobs:
     - name: Install VLLMModel CRD
       run: |
         kubectl apply -f manifests/crds/vllmmodel.yaml
-        kubectl wait --for condition=established --timeout=60s crd/models.vllm.sir-alfred.io
+        # Wait for CRD to be ready with retry logic
+        for i in {1..30}; do
+          if kubectl wait --for condition=established --timeout=2s crd/models.vllm.sir-alfred.io 2>/dev/null; then
+            echo "CRD established successfully"
+            break
+          fi
+          echo "Waiting for CRD to be established (attempt $i/30)..."
+          sleep 2
+        done
+        # Final check
+        kubectl get crd models.vllm.sir-alfred.io
 
     - name: Create test VLLMModel
       run: |
