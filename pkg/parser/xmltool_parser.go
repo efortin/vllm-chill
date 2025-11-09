@@ -616,7 +616,12 @@ func (p *XMLToolParser) parseParameters(content string) map[string]string {
 
 // generateToolCallID generates a simple tool call ID
 func (p *XMLToolParser) generateToolCallID(index int) string {
-	return fmt.Sprintf("call_%c%d", 'a'+index%26, index/26)
+	letter := 'a' + rune(index%26)
+	num := index / 26
+	if num == 0 {
+		return fmt.Sprintf("call_%c", letter)
+	}
+	return fmt.Sprintf("call_%c%d", letter, num)
 }
 
 // ParseXMLToolCalls parses XML tool calls from content.
