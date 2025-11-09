@@ -203,7 +203,9 @@ func (as *K8sAutoScaler) WaitForScaleUp(timeout time.Duration) error {
 
 	done := make(chan struct{})
 	go func() {
+		as.mu.Lock()
 		as.scaleUpCond.Wait()
+		as.mu.Unlock()
 		close(done)
 	}()
 
