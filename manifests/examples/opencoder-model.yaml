@@ -10,9 +10,8 @@ spec:
   # Parsing Configuration
   toolCallParser: "hermes"
   reasoningParser: ""
-  
+
   # vLLM Runtime Parameters
-  tensorParallelSize: 2
   maxModelLen: 65536
   gpuMemoryUtilization: 0.91
   enableChunkedPrefill: true

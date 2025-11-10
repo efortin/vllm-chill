@@ -175,11 +175,11 @@ jobs:
         spec:
           modelName: "test/model"
           servedModelName: "invalid"
-          dtype: "invalid-dtype"  # Should fail validation
-          tensorParallelSize: 0   # Should fail (minimum 1)
+          dtype: "invalid-dtype"  # Should fail validation (not in enum)
+          gpuMemoryUtilization: 1.5  # Should fail (maximum 1.0)
         EOF
-        
-        if kubectl apply -f invalid-model.yaml 2>&1 | grep -q "Invalid value"; then
+
+        if kubectl apply -f invalid-model.yaml 2>&1 | grep -qE "(Invalid value|not valid)"; then
           echo "✅ CRD validation working correctly"
         else
           echo "❌ CRD validation not working"
