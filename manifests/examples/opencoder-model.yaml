@@ -11,6 +11,9 @@ spec:
   toolCallParser: "hermes"
   reasoningParser: ""
 
+  # GPU Configuration
+  gpuCount: 2
+
   # vLLM Runtime Parameters
   maxModelLen: 65536
   gpuMemoryUtilization: 0.91
