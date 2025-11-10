@@ -28,10 +28,10 @@ For home labs and small clusters with limited GPUs, this is costly when vLLM sit
 - **Automatic Wake**: Scales to 1 replica on first request, buffers connections during startup
 - **CRD-Based Model Configuration**: Define models as cluster-scoped Kubernetes resources
 - **Static Model Selection**: Configure which model to run via `MODEL_ID` environment variable
-- **Automatic Resource Management**: Creates and manages vLLM Deployment, Service, and ConfigMap
+- **Automatic Resource Management**: Creates and manages vLLM Pod, Service, and ConfigMap
 - **Prometheus Metrics**: Always enabled at `/proxy/metrics` endpoint
 - **Lightweight**: ~2MB Docker image, <50MB RAM
-- **Multi-arch**: linux/amd64 and linux/arm64
+- **Architecture**: linux/amd64 with optional GPU stats support (NVML)
 
 ## Why This Exists
 

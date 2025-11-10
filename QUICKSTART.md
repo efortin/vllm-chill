@@ -37,16 +37,18 @@ kubectl create namespace vllm
 kubectl create secret generic hf-token-secret -n vllm \
   --from-literal=token=YOUR_HF_TOKEN
 
-# Option A: Use pre-built image from GHCR (after CI/CD runs)
+# Option A: Use pre-built image from Docker Hub
 kubectl apply -f manifests/kubernetes-with-model-switching.yaml
 
-# Option B: Build and deploy locally
-./scripts/local-deploy.sh
+# Option B: Build and push locally
+docker build -t docker.io/efortin/vllm-chill:latest .
+docker push docker.io/efortin/vllm-chill:latest
+kubectl apply -f manifests/kubernetes-with-model-switching.yaml
 ```
 
 **Note:** The Docker image must be available. Either:
-- Push to `main` branch to trigger GitHub Actions build
-- Or build locally with `docker build -t ghcr.io/efortin/vllm-chill:latest .`
+- Push to `main` branch (with a tag) to trigger GitHub Actions release
+- Or build and push locally as shown above
 
 ### 4. Configure Ingress (Optional)
 
@@ -96,8 +98,8 @@ curl http://localhost:8080/v1/chat/completions \
 # Check vllm-chill logs
 kubectl logs -n vllm -f deployment/vllm-chill
 
-# Check vLLM deployment
-kubectl get deployment -n vllm vllm
+# Check vLLM pod
+kubectl get pod -n vllm vllm
 
 # View proxy metrics
 kubectl port-forward -n vllm svc/vllm-chill-svc 8080:80
@@ -169,8 +171,8 @@ kubectl logs -n vllm deployment/vllm-chill
 ### vLLM not scaling up
 
 ```bash
-# Check if deployment exists
-kubectl get deployment -n vllm vllm
+# Check if pod exists
+kubectl get pod -n vllm vllm
 
 # Check vllm-chill logs for errors
 kubectl logs -n vllm deployment/vllm-chill
