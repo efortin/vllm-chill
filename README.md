@@ -54,11 +54,40 @@ Internet → Ingress → vllm-chill-svc → vllm-chill (proxy)
 
 See [QUICKSTART.md](QUICKSTART.md) for installation instructions.
 
+## Monitoring
+
+vLLM-Chill exposes comprehensive Prometheus metrics at `/proxy/metrics`:
+
+**Operational Metrics:**
+- `vllm_chill_requests_total` - Total requests by method/path/status
+- `vllm_chill_request_duration_seconds` - Request latency histograms
+- `vllm_chill_request_payload_bytes` / `vllm_chill_response_payload_bytes` - Payload sizes
+- `vllm_chill_managed_operations_total` - Model switch operations (success/failure)
+- `vllm_chill_managed_operation_duration_seconds` - Model switch duration
+
+**Scaling Metrics:**
+- `vllm_chill_scale_operations_total` - Scale up/down operations
+- `vllm_chill_scale_operation_duration_seconds` - Scaling duration
+- `vllm_chill_current_replicas` - Current vLLM replica count (0 or 1)
+- `vllm_chill_idle_time_seconds` - Time since last activity
+
+**vLLM Lifecycle:**
+- `vllm_chill_vllm_state` - Current state (0=stopped, 1=starting, 2=running, 3=stopping)
+- `vllm_chill_vllm_startup_duration_seconds` - Cold start time
+- `vllm_chill_vllm_shutdown_duration_seconds` - Shutdown time
+- `vllm_chill_current_model` - Currently loaded model (1 if loaded, 0 otherwise)
+
+**Performance:**
+- `vllm_chill_proxy_latency_seconds` - Overhead added by proxy
+- `vllm_chill_xml_parsing_total` - XML tool call parsing (for tool-enabled models)
+- `vllm_chill_xml_tool_calls_detected_total` - Total tool calls detected
+
+See [docs/METRICS.md](docs/METRICS.md) for detailed metric descriptions and Grafana dashboard examples.
+
 ## Documentation
 
 - [QUICKSTART.md](QUICKSTART.md) - Installation and basic usage
-- [docs/CRD_GUIDE.md](docs/CRD_GUIDE.md) - VLLMModel CRD reference
-- [docs/METRICS.md](docs/METRICS.md) - Prometheus metrics
+- [docs/METRICS.md](docs/METRICS.md) - Prometheus metrics reference
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - Design details
 
 ## Development
