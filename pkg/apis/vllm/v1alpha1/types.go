@@ -26,6 +26,9 @@ type VLLMModelSpec struct {
 	ToolCallParser  string `json:"toolCallParser,omitempty"`
 	ReasoningParser string `json:"reasoningParser,omitempty"`
 
+	// GPU Configuration
+	GPUCount int `json:"gpuCount,omitempty"`
+
 	// vLLM Runtime Parameters
 	MaxModelLen            int     `json:"maxModelLen,omitempty"`
 	GPUMemoryUtilization   float64 `json:"gpuMemoryUtilization,omitempty"`

@@ -47,6 +47,13 @@ spec:
                     - ""
                     - "deepseek_r1"
 
+                # GPU Configuration
+                gpuCount:
+                  type: integer
+                  description: "Number of GPUs to use (controls tensor-parallel-size and resource limits)"
+                  default: 1
+                  minimum: 1
+
                 # vLLM Runtime Parameters
                 maxModelLen:
                   type: integer

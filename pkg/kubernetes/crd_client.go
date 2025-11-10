@@ -83,6 +83,11 @@ func (c *CRDClient) convertToModelConfig(u *unstructured.Unstructured) (*ModelCo
 		config.ReasoningParser = reasoningParser
 	}
 
+	// GPU configuration
+	if gpuCount, found, _ := unstructured.NestedInt64(spec, "gpuCount"); found {
+		config.GPUCount = strconv.FormatInt(gpuCount, 10)
+	}
+
 	// vLLM runtime parameters
 	if maxModelLen, found, _ := unstructured.NestedInt64(spec, "maxModelLen"); found {
 		config.MaxModelLen = strconv.FormatInt(maxModelLen, 10)
