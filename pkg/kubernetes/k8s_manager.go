@@ -240,6 +240,14 @@ func (m *K8sManager) buildVLLMArgs(modelConfig *ModelConfig) []string {
 
 	args = append(args,
 		"--tool-call-parser", modelConfig.ToolCallParser,
+	)
+
+	// Add reasoning parser if specified
+	if modelConfig.ReasoningParser != "" {
+		args = append(args, "--reasoning-parser", modelConfig.ReasoningParser)
+	}
+
+	args = append(args,
 		"--host", "0.0.0.0",
 		"--port", "8000",
 		"--api-key", "$(VLLM_API_KEY)",
