@@ -1,8 +1,11 @@
-# Build stage
-FROM golang:1.24-alpine AS builder
+# Build stage - use Debian for glibc compatibility with go-nvml
+FROM golang:1.24-bookworm AS builder
 
 # Install build dependencies
-RUN apk add --no-cache gcc musl-dev
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 
@@ -23,11 +26,13 @@ RUN CGO_ENABLED=1 \
     go build -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
     -o vllm-chill ./cmd/autoscaler
 
-# Final stage
-FROM alpine:latest
+# Final stage - use Debian slim for glibc compatibility at runtime
+FROM debian:bookworm-slim
 
 # Install runtime dependencies
-RUN apk add --no-cache ca-certificates
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy binary from builder
 COPY --from=builder /build/vllm-chill /vllm-chill
