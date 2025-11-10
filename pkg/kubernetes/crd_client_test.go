@@ -28,7 +28,6 @@ func TestCRDClient_ConvertToModelConfig(t *testing.T) {
 						"servedModelName":        "test-model",
 						"toolCallParser":         "hermes",
 						"reasoningParser":        "deepseek_r1",
-						"tensorParallelSize":     int64(2),
 						"maxModelLen":            int64(65536),
 						"gpuMemoryUtilization":   0.91,
 						"enableChunkedPrefill":   true,
@@ -47,7 +46,6 @@ func TestCRDClient_ConvertToModelConfig(t *testing.T) {
 				ServedModelName:        "test-model",
 				ToolCallParser:         "hermes",
 				ReasoningParser:        "deepseek_r1",
-				TensorParallelSize:     "2",
 				MaxModelLen:            "65536",
 				GPUMemoryUtilization:   "0.91",
 				EnableChunkedPrefill:   "true",
@@ -95,9 +93,6 @@ func TestCRDClient_ConvertToModelConfig(t *testing.T) {
 			if got.ServedModelName != tt.want.ServedModelName {
 				t.Errorf("ServedModelName = %v, want %v", got.ServedModelName, tt.want.ServedModelName)
 			}
-			if got.TensorParallelSize != tt.want.TensorParallelSize {
-				t.Errorf("TensorParallelSize = %v, want %v", got.TensorParallelSize, tt.want.TensorParallelSize)
-			}
 		})
 	}
 }
@@ -120,7 +115,6 @@ func TestCRDClient_ConvertToModelConfig_AllFields(t *testing.T) {
 				"servedModelName":        "full-model",
 				"toolCallParser":         "hermes",
 				"reasoningParser":        "deepseek_r1",
-				"tensorParallelSize":     int64(4),
 				"maxModelLen":            int64(32768),
 				"gpuMemoryUtilization":   0.95,
 				"enableChunkedPrefill":   true,
@@ -153,9 +147,6 @@ func TestCRDClient_ConvertToModelConfig_AllFields(t *testing.T) {
 	}
 	if config.ReasoningParser != "deepseek_r1" {
 		t.Errorf("ReasoningParser = %v, want deepseek_r1", config.ReasoningParser)
-	}
-	if config.TensorParallelSize != "4" {
-		t.Errorf("TensorParallelSize = %v, want 4", config.TensorParallelSize)
 	}
 	if config.MaxModelLen != "32768" {
 		t.Errorf("MaxModelLen = %v, want 32768", config.MaxModelLen)

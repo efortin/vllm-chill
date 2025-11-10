@@ -46,13 +46,8 @@ spec:
                   enum:
                     - ""
                     - "deepseek_r1"
-                
+
                 # vLLM Runtime Parameters
-                tensorParallelSize:
-                  type: integer
-                  description: "Number of GPUs to use for tensor parallelism"
-                  default: 1
-                  minimum: 1
                 maxModelLen:
                   type: integer
                   description: "Maximum model context length"

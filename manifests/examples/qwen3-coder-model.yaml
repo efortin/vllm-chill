@@ -10,10 +10,9 @@ spec:
   # Parsing Configuration
   toolCallParser: "qwen3_coder"
   reasoningParser: ""
-  
+
   # vLLM Runtime Parameters
-  tensorParallelSize: 2
-  maxModelLen: 65536
+  maxModelLen: 112640
   gpuMemoryUtilization: 0.91
   enableChunkedPrefill: true
   maxNumBatchedTokens: 8192

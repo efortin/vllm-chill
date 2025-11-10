@@ -84,9 +84,6 @@ func (c *CRDClient) convertToModelConfig(u *unstructured.Unstructured) (*ModelCo
 	}
 
 	// vLLM runtime parameters
-	if tensorParallelSize, found, _ := unstructured.NestedInt64(spec, "tensorParallelSize"); found {
-		config.TensorParallelSize = strconv.FormatInt(tensorParallelSize, 10)
-	}
 	if maxModelLen, found, _ := unstructured.NestedInt64(spec, "maxModelLen"); found {
 		config.MaxModelLen = strconv.FormatInt(maxModelLen, 10)
 	}

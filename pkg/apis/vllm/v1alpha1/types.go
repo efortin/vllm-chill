@@ -27,7 +27,6 @@ type VLLMModelSpec struct {
 	ReasoningParser string `json:"reasoningParser,omitempty"`
 
 	// vLLM Runtime Parameters
-	TensorParallelSize     int     `json:"tensorParallelSize,omitempty"`
 	MaxModelLen            int     `json:"maxModelLen,omitempty"`
 	GPUMemoryUtilization   float64 `json:"gpuMemoryUtilization,omitempty"`
 	EnableChunkedPrefill   *bool   `json:"enableChunkedPrefill,omitempty"`
