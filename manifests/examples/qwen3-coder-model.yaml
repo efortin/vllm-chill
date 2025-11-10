@@ -11,6 +11,9 @@ spec:
   toolCallParser: "qwen3_coder"
   reasoningParser: ""
 
+  # GPU Configuration
+  gpuCount: 2
+
   # vLLM Runtime Parameters
   maxModelLen: 112640
   gpuMemoryUtilization: 0.91
