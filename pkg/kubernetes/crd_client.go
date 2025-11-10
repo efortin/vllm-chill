@@ -86,6 +86,7 @@ func (c *CRDClient) convertToModelConfig(u *unstructured.Unstructured) (*ModelCo
 	// GPU configuration
 	if gpuCount, found, _ := unstructured.NestedInt64(spec, "gpuCount"); found {
 		config.GPUCount = strconv.FormatInt(gpuCount, 10)
+		config.TensorParallelSize = config.GPUCount // Use gpuCount for tensor parallelism
 	}
 
 	// vLLM runtime parameters
