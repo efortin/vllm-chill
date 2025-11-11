@@ -170,3 +170,108 @@ func TestResponseWriter_WithoutClosingTags(t *testing.T) {
 		}
 	})
 }
+
+func TestResponseWriter_ReasoningContentPassthrough(t *testing.T) {
+	// Simulate DeepSeek R1 streaming with reasoning_content
+	streamingChunks := []string{
+		`data: {"id":"chatcmpl-test3","object":"chat.completion.chunk","created":1762238668,"model":"deepseek-r1-fp8","choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test3","object":"chat.completion.chunk","created":1762238668,"model":"deepseek-r1-fp8","choices":[{"index":0,"delta":{"reasoning_content":"I need to"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test3","object":"chat.completion.chunk","created":1762238668,"model":"deepseek-r1-fp8","choices":[{"index":0,"delta":{"reasoning_content":" add the"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test3","object":"chat.completion.chunk","created":1762238668,"model":"deepseek-r1-fp8","choices":[{"index":0,"delta":{"reasoning_content":" numbers"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test3","object":"chat.completion.chunk","created":1762238668,"model":"deepseek-r1-fp8","choices":[{"index":0,"delta":{"reasoning_content":" 2 and 2."},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test3","object":"chat.completion.chunk","created":1762238668,"model":"deepseek-r1-fp8","choices":[{"index":0,"delta":{"content":"The"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test3","object":"chat.completion.chunk","created":1762238668,"model":"deepseek-r1-fp8","choices":[{"index":0,"delta":{"content":" answer"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test3","object":"chat.completion.chunk","created":1762238668,"model":"deepseek-r1-fp8","choices":[{"index":0,"delta":{"content":" is 4."},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-test3","object":"chat.completion.chunk","created":1762238668,"model":"deepseek-r1-fp8","choices":[{"index":0,"delta":{"content":""},"logprobs":null,"finish_reason":"stop","stop_reason":null,"token_ids":null}]}` + "\n\n",
+		`data: [DONE]` + "\n\n",
+	}
+
+	t.Run("reasoning_content is passed through unmodified", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		rw := newResponseWriter(recorder, true, nil)
+
+		// Write chunks one by one (simulating streaming)
+		for i, chunk := range streamingChunks {
+			_, err := rw.Write([]byte(chunk))
+			if err != nil {
+				t.Fatalf("Failed to write chunk %d: %v", i, err)
+			}
+		}
+
+		result := recorder.Body.String()
+		t.Logf("Result length: %d bytes", len(result))
+
+		// Verify reasoning_content is present in output
+		if !strings.Contains(result, "reasoning_content") {
+			t.Error("Expected 'reasoning_content' in result - it was stripped!")
+			t.Logf("Result: %s", result)
+		}
+
+		// Verify reasoning content values are preserved
+		if !strings.Contains(result, "I need to") {
+			t.Error("Expected reasoning text 'I need to' in result")
+		}
+
+		if !strings.Contains(result, " add the") {
+			t.Error("Expected reasoning text ' add the' in result")
+		}
+
+		// Verify regular content is also present (check for individual chunks, not concatenated)
+		if !strings.Contains(result, `"content":"The"`) || !strings.Contains(result, `"content":" answer"`) {
+			t.Error("Expected regular content chunks in result")
+			t.Logf("Result preview: %s", result[:min(500, len(result))])
+		}
+
+		// Verify [DONE] marker is present
+		if !strings.Contains(result, "[DONE]") {
+			t.Error("Expected [DONE] marker in result")
+		}
+
+		// Ensure XML parsing was NOT triggered by reasoning_content
+		if strings.Contains(result, "tool_calls") {
+			t.Error("Found 'tool_calls' in result - reasoning_content should not trigger XML parsing!")
+		}
+	})
+
+	t.Run("reasoning_content does not trigger XML mode", func(t *testing.T) {
+		// Mix reasoning_content with text that looks like XML in regular content
+		mixedChunks := []string{
+			`data: {"id":"chatcmpl-test4","object":"chat.completion.chunk","created":1762238668,"model":"deepseek-r1-fp8","choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}]}` + "\n\n",
+			`data: {"id":"chatcmpl-test4","object":"chat.completion.chunk","created":1762238668,"model":"deepseek-r1-fp8","choices":[{"index":0,"delta":{"reasoning_content":"Let me think..."},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+			`data: {"id":"chatcmpl-test4","object":"chat.completion.chunk","created":1762238668,"model":"deepseek-r1-fp8","choices":[{"index":0,"delta":{"content":"Here's some text"},"logprobs":null,"finish_reason":null,"token_ids":null}]}` + "\n\n",
+			`data: {"id":"chatcmpl-test4","object":"chat.completion.chunk","created":1762238668,"model":"deepseek-r1-fp8","choices":[{"index":0,"delta":{"content":""},"logprobs":null,"finish_reason":"stop","stop_reason":null,"token_ids":null}]}` + "\n\n",
+			`data: [DONE]` + "\n\n",
+		}
+
+		recorder := httptest.NewRecorder()
+		rw := newResponseWriter(recorder, true, nil)
+
+		for _, chunk := range mixedChunks {
+			_, err := rw.Write([]byte(chunk))
+			if err != nil {
+				t.Fatalf("Failed to write chunk: %v", err)
+			}
+		}
+
+		result := recorder.Body.String()
+
+		// Verify both reasoning_content and content are present
+		if !strings.Contains(result, "reasoning_content") {
+			t.Error("Expected 'reasoning_content' in result")
+		}
+
+		if !strings.Contains(result, "Let me think...") {
+			t.Error("Expected reasoning text 'Let me think...' in result")
+		}
+
+		if !strings.Contains(result, "Here's some text") {
+			t.Error("Expected regular content 'Here's some text' in result")
+		}
+
+		// Ensure all chunks were passed through (not buffered)
+		chunkCount := strings.Count(result, "data: {")
+		if chunkCount < len(mixedChunks)-1 { // -1 for [DONE]
+			t.Errorf("Expected at least %d data chunks, got %d - chunks may have been buffered", len(mixedChunks)-1, chunkCount)
+		}
+	})
+}

@@ -130,6 +130,9 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 							}
 						}
 					}
+
+					// Note: reasoning_content (DeepSeek R1, etc.) is passed through unmodified
+					// It is separate from regular content and does not trigger XML parsing
 				}
 			}
 		}
