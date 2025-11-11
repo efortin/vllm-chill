@@ -54,7 +54,6 @@ func TestCRDClient_ConvertToModelConfig(t *testing.T) {
 				Dtype:                  "float16",
 				DisableCustomAllReduce: "true",
 				EnablePrefixCaching:    "true",
-				CPUOffloadGB:           "0",
 				EnableAutoToolChoice:   "true",
 			},
 			wantErr: false,
@@ -172,10 +171,8 @@ func TestCRDClient_ConvertToModelConfig_AllFields(t *testing.T) {
 	if config.EnablePrefixCaching != "true" {
 		t.Errorf("EnablePrefixCaching = %v, want true", config.EnablePrefixCaching)
 	}
-	if config.CPUOffloadGB != "4" {
-		t.Errorf("CPUOffloadGB = %v, want 4", config.CPUOffloadGB)
-	}
 	if config.EnableAutoToolChoice != "false" {
 		t.Errorf("EnableAutoToolChoice = %v, want false", config.EnableAutoToolChoice)
 	}
+	// Note: cpuOffloadGB is now infrastructure-level, not in ModelConfig
 }

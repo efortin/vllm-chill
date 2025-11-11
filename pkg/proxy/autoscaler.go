@@ -26,8 +26,9 @@ import (
 )
 
 const (
-	defaultScaleUpTimeout = 2 * time.Minute
-	defaultCheckInterval  = 10 * time.Second
+	defaultScaleUpTimeout    = 2 * time.Minute
+	defaultCheckInterval     = 10 * time.Second
+	configDriftCheckInterval = 30 * time.Second // Check for config drift every 30s
 )
 
 // AutoScaler manages automatic scaling of vLLM deployments
@@ -38,6 +39,7 @@ type AutoScaler struct {
 	config       *Config
 	targetURL    *url.URL
 	lastActivity time.Time
+	activeModel  string // Currently active model ID
 	mu           sync.RWMutex
 	isScalingUp  bool
 	scaleUpCond  *sync.Cond
@@ -88,6 +90,8 @@ func NewAutoScaler(config *Config) (*AutoScaler, error) {
 		Namespace:     config.Namespace,
 		Deployment:    config.Deployment,
 		ConfigMapName: config.ConfigMapName,
+		GPUCount:      config.GPUCount,
+		CPUOffloadGB:  config.CPUOffloadGB,
 	}
 
 	as := &AutoScaler{
@@ -97,6 +101,7 @@ func NewAutoScaler(config *Config) (*AutoScaler, error) {
 		config:       config,
 		targetURL:    targetURL,
 		lastActivity: time.Now(),
+		activeModel:  config.ModelID,
 		metrics:      stats.NewMetricsRecorder(),
 		version:      "dev",
 		commit:       "none",
@@ -114,6 +119,12 @@ func NewAutoScaler(config *Config) (*AutoScaler, error) {
 		return nil, fmt.Errorf("failed to ensure vLLM resources: %w", err)
 	}
 	log.Printf("Loaded model configuration: %s", config.ModelID)
+
+	// Start watching the active model for changes
+	as.startModelWatch(ctx)
+
+	// Start periodic config drift check
+	go as.startConfigDriftCheck(ctx)
 
 	return as, nil
 }
@@ -164,15 +175,17 @@ func (as *AutoScaler) managePod(ctx context.Context, create bool) error {
 
 	var err error
 	if create {
-		// Get model config
+		// Get model config for the currently active model
 		var modelConfig *kubernetes.ModelConfig
-		modelConfig, err = as.crdClient.GetModel(ctx, as.config.ModelID)
+		activeModelID := as.activeModel
+		modelConfig, err = as.crdClient.GetModel(ctx, activeModelID)
 		if err != nil {
 			as.metrics.RecordScaleOp(direction, false, time.Since(start))
 			as.metrics.SetVLLMState(0) // failed to start, mark as stopped
-			return fmt.Errorf("failed to get model config: %w", err)
+			return fmt.Errorf("failed to get model config for '%s': %w", activeModelID, err)
 		}
 
+		log.Printf("Creating pod with model: %s (%s)", activeModelID, modelConfig.ModelName)
 		err = as.k8sManager.CreatePod(ctx, modelConfig)
 	} else {
 		err = as.k8sManager.DeletePod(ctx)
@@ -426,6 +439,179 @@ func (as *AutoScaler) UpdateActivity() {
 	as.updateActivity()
 }
 
+// GetActiveModel returns the currently active model ID
+func (as *AutoScaler) GetActiveModel() string {
+	as.mu.RLock()
+	defer as.mu.RUnlock()
+	return as.activeModel
+}
+
+// SwitchModel switches to a different model
+func (as *AutoScaler) SwitchModel(ctx context.Context, modelID string) error {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	// Check if pod is running - if so, delete it first
+	exists, err := as.podExists(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to check pod existence: %w", err)
+	}
+
+	if exists {
+		log.Printf("Stopping current pod before switching to model: %s", modelID)
+		as.mu.Unlock()
+		if err := as.managePod(ctx, false); err != nil {
+			as.mu.Lock()
+			return fmt.Errorf("failed to stop current pod: %w", err)
+		}
+		as.mu.Lock()
+	}
+
+	// Update active model
+	as.activeModel = modelID
+	log.Printf("Switched active model to: %s", modelID)
+
+	return nil
+}
+
+// GetModelConfig retrieves model configuration from CRD
+func (as *AutoScaler) GetModelConfig(ctx context.Context, modelID string) (*kubernetes.ModelConfig, error) {
+	return as.crdClient.GetModel(ctx, modelID)
+}
+
+// ListModels returns all available models from CRDs
+func (as *AutoScaler) ListModels(ctx context.Context) ([]ModelInfo, error) {
+	models, err := as.crdClient.ListModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]ModelInfo, 0, len(models))
+	for _, model := range models {
+		result = append(result, ModelInfo{
+			Name:            model.Name,
+			ServedModelName: model.Spec.ServedModelName,
+			ModelName:       model.Spec.ModelName,
+			MaxModelLen:     fmt.Sprintf("%d", model.Spec.MaxModelLen),
+		})
+	}
+
+	return result, nil
+}
+
+// IsRunning returns whether the vLLM pod is currently running
+func (as *AutoScaler) IsRunning() bool {
+	ctx := context.Background()
+	exists, err := as.podExists(ctx)
+	if err != nil {
+		return false
+	}
+	return exists
+}
+
+// ModelInfo represents basic model information
+type ModelInfo struct {
+	Name            string `json:"name"`
+	ServedModelName string `json:"servedModelName"`
+	ModelName       string `json:"modelName"`
+	MaxModelLen     string `json:"maxModelLen"`
+}
+
+// availableModelsHandler returns all available models from CRDs
+func (as *AutoScaler) availableModelsHandler(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	models, err := as.ListModels(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("Failed to list models: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"models": models,
+		"count":  len(models),
+	})
+}
+
+// runningModelHandler returns the currently active model
+func (as *AutoScaler) runningModelHandler(c *gin.Context) {
+	activeModel := as.GetActiveModel()
+	isRunning := as.IsRunning()
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	// Get full model config
+	modelConfig, err := as.GetModelConfig(ctx, activeModel)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("Failed to get model config: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"active_model": activeModel,
+		"running":      isRunning,
+		"config": gin.H{
+			"modelName":       modelConfig.ModelName,
+			"servedModelName": modelConfig.ServedModelName,
+			"maxModelLen":     modelConfig.MaxModelLen,
+			"toolCallParser":  modelConfig.ToolCallParser,
+			"reasoningParser": modelConfig.ReasoningParser,
+		},
+		"infrastructure": gin.H{
+			"gpuCount":     as.config.GPUCount,
+			"cpuOffloadGB": as.config.CPUOffloadGB,
+		},
+	})
+}
+
+// SwitchRequest represents a model switch request
+type SwitchRequest struct {
+	ModelID string `json:"model_id" binding:"required"`
+}
+
+// switchModelHandler switches to a different model
+func (as *AutoScaler) switchModelHandler(c *gin.Context) {
+	var req SwitchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("Invalid request: %v", err),
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	// Verify model exists before switching
+	_, err := as.GetModelConfig(ctx, req.ModelID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": fmt.Sprintf("Model '%s' not found: %v", req.ModelID, err),
+		})
+		return
+	}
+
+	// Perform the switch
+	if err := as.SwitchModel(ctx, req.ModelID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("Failed to switch model: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":      "Model switched successfully",
+		"active_model": req.ModelID,
+		"note":         "vLLM pod will be recreated with the new model on next request",
+	})
+}
+
 // startIdleChecker starts a background goroutine that checks for idle time
 func (as *AutoScaler) startIdleChecker() {
 	ticker := time.NewTicker(defaultCheckInterval)
@@ -483,6 +669,14 @@ func (as *AutoScaler) Run() error {
 		operationHandler := operation.NewGinHandler(as)
 		proxyGroup.POST("/operations/start", operationHandler.StartHandler)
 		proxyGroup.POST("/operations/stop", operationHandler.StopHandler)
+
+		// Model management endpoints
+		modelsGroup := proxyGroup.Group("/models")
+		{
+			modelsGroup.GET("/available", as.availableModelsHandler)
+			modelsGroup.GET("/running", as.runningModelHandler)
+			modelsGroup.POST("/switch", as.switchModelHandler)
+		}
 	}
 
 	// Default proxy handler for all other routes
@@ -493,6 +687,94 @@ func (as *AutoScaler) Run() error {
 	log.Printf("   Version endpoint: http://0.0.0.0:%s/proxy/version", as.config.Port)
 	log.Printf("   Manual start endpoint: http://0.0.0.0:%s/proxy/operations/start", as.config.Port)
 	log.Printf("   Manual stop endpoint: http://0.0.0.0:%s/proxy/operations/stop", as.config.Port)
+	log.Printf("   Available models endpoint: http://0.0.0.0:%s/proxy/models/available", as.config.Port)
+	log.Printf("   Running model endpoint: http://0.0.0.0:%s/proxy/models/running", as.config.Port)
+	log.Printf("   Switch model endpoint: http://0.0.0.0:%s/proxy/models/switch", as.config.Port)
 
 	return router.Run(":" + as.config.Port)
+}
+
+// startModelWatch starts watching the active model for configuration changes
+func (as *AutoScaler) startModelWatch(ctx context.Context) {
+	as.mu.RLock()
+	activeModel := as.activeModel
+	as.mu.RUnlock()
+
+	// Watch the active model CRD
+	err := as.crdClient.WatchModel(ctx, activeModel, func() {
+		log.Printf("Model %s configuration changed, restarting vLLM pod...", activeModel)
+		as.restartVLLMPod()
+	})
+	if err != nil {
+		log.Printf("Warning: Failed to start watching model %s: %v", activeModel, err)
+	}
+}
+
+// restartVLLMPod deletes the vLLM pod to force a restart with new configuration
+func (as *AutoScaler) restartVLLMPod() {
+	ctx := context.Background()
+
+	// Check if pod exists
+	exists, err := as.k8sManager.PodExists(ctx)
+	if err != nil {
+		log.Printf("Error checking if pod exists: %v", err)
+		return
+	}
+
+	if !exists {
+		log.Printf("vLLM pod doesn't exist, no restart needed")
+		return
+	}
+
+	// Delete the pod - it will be recreated on next request with new config
+	if err := as.k8sManager.DeletePod(ctx); err != nil {
+		log.Printf("Error restarting vLLM pod: %v", err)
+		return
+	}
+
+	log.Printf("Successfully deleted vLLM pod, will be recreated with new configuration on next request")
+}
+
+// startConfigDriftCheck periodically verifies that the running vLLM pod matches the CRD config
+func (as *AutoScaler) startConfigDriftCheck(ctx context.Context) {
+	ticker := time.NewTicker(configDriftCheckInterval)
+	defer ticker.Stop()
+
+	log.Printf("Started periodic config drift check (every %v)", configDriftCheckInterval)
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("Stopped config drift check")
+			return
+		case <-ticker.C:
+			as.checkConfigDrift(ctx)
+		}
+	}
+}
+
+// checkConfigDrift checks if the running pod config matches the CRD and restarts if needed
+func (as *AutoScaler) checkConfigDrift(ctx context.Context) {
+	as.mu.RLock()
+	activeModel := as.activeModel
+	as.mu.RUnlock()
+
+	// Get current model config from CRD
+	modelConfig, err := as.crdClient.GetModel(ctx, activeModel)
+	if err != nil {
+		log.Printf("Warning: Failed to get model config for drift check: %v", err)
+		return
+	}
+
+	// Verify pod config matches
+	matches, err := as.k8sManager.VerifyPodConfig(ctx, modelConfig)
+	if err != nil {
+		log.Printf("Warning: Failed to verify pod config: %v", err)
+		return
+	}
+
+	if !matches {
+		log.Printf("Config drift detected! vLLM pod config doesn't match CRD. Restarting pod...")
+		as.restartVLLMPod()
+	}
 }

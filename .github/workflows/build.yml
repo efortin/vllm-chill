@@ -56,12 +56,6 @@ jobs:
         fail_ci_if_error: false
         flags: unittests
 
-    - name: Upload coverage artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: coverage-report
-        path: coverage.html
-
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -81,10 +75,4 @@ jobs:
 
     - name: Test binary execution
       run: ./bin/vllm-chill --help
-
-    - name: Upload binary artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: vllm-chill-binary
-        path: bin/vllm-chill
 

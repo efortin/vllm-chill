@@ -3,6 +3,7 @@ package cmd
 import (
 	"log"
 	"os"
+	"strconv"
 
 	"github.com/efortin/vllm-chill/pkg/proxy"
 	"github.com/spf13/cobra"
@@ -16,6 +17,8 @@ var (
 	port          string
 	logOutput     bool
 	modelID       string
+	gpuCount      int
+	cpuOffloadGB  int
 )
 
 var serveCmd = &cobra.Command{
@@ -37,6 +40,8 @@ The proxy will:
 			Port:          port,
 			LogOutput:     logOutput,
 			ModelID:       modelID,
+			GPUCount:      gpuCount,
+			CPUOffloadGB:  cpuOffloadGB,
 		}
 
 		scaler, err := proxy.NewAutoScaler(config)
@@ -72,6 +77,8 @@ func init() {
 	serveCmd.Flags().StringVar(&idleTimeout, "idle-timeout", getEnvOrDefault("IDLE_TIMEOUT", "5m"), "Idle timeout before scaling to 0")
 	serveCmd.Flags().StringVar(&port, "port", getEnvOrDefault("PORT", "8080"), "HTTP server port")
 	serveCmd.Flags().StringVar(&modelID, "model-id", getEnvOrDefault("MODEL_ID", ""), "Model ID to load from VLLMModel CRD (required)")
+	serveCmd.Flags().IntVar(&gpuCount, "gpu-count", getEnvOrDefaultInt("GPU_COUNT", 2), "Number of GPUs to allocate (infrastructure-level)")
+	serveCmd.Flags().IntVar(&cpuOffloadGB, "cpu-offload-gb", getEnvOrDefaultInt("CPU_OFFLOAD_GB", 0), "CPU offload in GB (infrastructure-level)")
 	// vLLM is now always managed by the autoscaler
 	serveCmd.Flags().BoolVar(&logOutput, "log-output", getEnvOrDefault("LOG_OUTPUT", "false") == "true", "Log response bodies (use with caution, can be verbose)")
 }
@@ -79,6 +86,15 @@ func init() {
 func getEnvOrDefault(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
+	}
+	return defaultValue
+}
+
+func getEnvOrDefaultInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intVal, err := strconv.Atoi(value); err == nil {
+			return intVal
+		}
 	}
 	return defaultValue
 }

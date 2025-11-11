@@ -11,10 +11,8 @@ spec:
   toolCallParser: "qwen3_coder"
   reasoningParser: ""
 
-  # GPU Configuration
-  gpuCount: 2
-
-  # vLLM Runtime Parameters
+  # vLLM Runtime Parameters (model-specific)
+  # Note: GPU count and CPU offload are configured at vllm-chill deployment level (GPU_COUNT and CPU_OFFLOAD_GB env vars)
   maxModelLen: 112640
   gpuMemoryUtilization: 0.91
   enableChunkedPrefill: true
@@ -23,5 +21,4 @@ spec:
   dtype: "float16"
   disableCustomAllReduce: true
   enablePrefixCaching: true
-  cpuOffloadGB: 0
   enableAutoToolChoice: true

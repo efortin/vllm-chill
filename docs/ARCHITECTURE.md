@@ -130,70 +130,86 @@ The proxy runs in its **own deployment**:
 
 ## Configuration Flow
 
-### VLLMModel CRD → ConfigMap → vLLM Pod
+### VLLMModel CRD → vLLM Pod (Direct)
 
 ```
 ┌──────────────────────────────────────────────────────────┐
 │  VLLMModel CRD (cluster-scoped)                          │
 │  ─────────────────────────────────                       │
-│  apiVersion: vllm.sir-alfred.io/v1                       │
-│  kind: Model                                              │
+│  apiVersion: vllm.sir-alfred.io/v1alpha1                 │
+│  kind: VLLMModel                                          │
 │  metadata:                                                │
 │    name: qwen3-coder-30b-fp8                             │
 │  spec:                                                    │
 │    modelName: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"   │
 │    servedModelName: "qwen3-coder-30b-fp8"               │
-│    tensorParallelSize: 2                                 │
-│    maxModelLen: 65536                                    │
+│    maxModelLen: 112640                                   │
+│    maxNumBatchedTokens: 8192                            │
+│    maxNumSeqs: 16                                        │
+│    toolCallParser: "qwen3_coder"                        │
+│    reasoningParser: ""                                   │
+│    # Note: gpuCount, cpuOffloadGB at deployment level   │
 │    ...                                                    │
 └────────────────┬─────────────────────────────────────────┘
                  │
-                 │ vllm-chill reads CRD
-                 │ based on MODEL_ID env var
-                 ▼
-┌──────────────────────────────────────────────────────────┐
-│  ConfigMap: vllm-config (namespace: vllm)                │
-│  ────────────────────────────────────────                │
-│  data:                                                    │
-│    MODEL_NAME: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8" │
-│    SERVED_MODEL_NAME: "qwen3-coder-30b-fp8"            │
-│    TENSOR_PARALLEL_SIZE: "2"                            │
-│    MAX_MODEL_LEN: "65536"                               │
-│    ...                                                    │
-│                                                           │
-│  Created/Updated automatically by vllm-chill             │
-└────────────────┬─────────────────────────────────────────┘
-                 │
-                 │ envFrom: configMapRef
+                 │ vllm-chill reads CRD directly
+                 │ based on active model ID
+                 │ (switchable via API)
                  ▼
 ┌──────────────────────────────────────────────────────────┐
 │  vLLM Pod                                                 │
 │  ────────                                                 │
-│  Environment variables from ConfigMap:                   │
-│  - MODEL_NAME                                             │
-│  - SERVED_MODEL_NAME                                     │
-│  - TENSOR_PARALLEL_SIZE                                  │
-│  - MAX_MODEL_LEN                                         │
+│  vllm-chill builds pod spec with args from CRD + config: │
+│  - --model "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"      │
+│  - --served-model-name "qwen3-coder-30b-fp8"            │
+│  - --tensor-parallel-size 2 (from vllm-chill config)    │
+│  - --max-model-len 112640 (from CRD)                     │
+│  - --max-num-batched-tokens 8192 (from CRD)             │
+│  - --max-num-seqs 16 (from CRD)                          │
+│  - --tool-call-parser "qwen3_coder" (from CRD)          │
+│  - --cpu-offload-gb 0 (from vllm-chill config)          │
 │  ...                                                      │
 │                                                           │
-│  vLLM uses these to configure the model at startup       │
+│  vLLM uses these args to configure the model at startup  │
 └──────────────────────────────────────────────────────────┘
 ```
 
-**Why the ConfigMap?**
-- VLLMModel CRD is cluster-scoped (for reusability across namespaces)
-- vLLM pod needs environment variables to configure itself
-- ConfigMap bridges the gap: CRD → ConfigMap → Pod env vars
-- vllm-chill automatically creates/updates the ConfigMap based on the selected model
+**Why Direct CRD Reading?**
+- **Single source of truth**: Model configuration lives only in the CRD
+- **No duplication**: No need to copy config into ConfigMap
+- **Dynamic switching**: Can switch models via API without redeploying
+- **Simpler architecture**: Fewer moving parts, easier to maintain
+- **Immediate updates**: Changes to CRD are picked up on next pod creation
+- **Clear separation**: Model-specific params in CRD, infrastructure params in deployment config
 
-## Metrics Endpoints
+## API Endpoints
 
-To avoid conflicts between proxy and vLLM metrics:
+### Model Management
+
+- **`GET /proxy/models/available`** - List all available models from VLLMModel CRDs
+- **`GET /proxy/models/running`** - Get the currently active model and its configuration
+- **`POST /proxy/models/switch`** - Switch to a different model (stops current pod, next request will start new model)
+
+Example model switch:
+```bash
+curl -X POST http://vllm-chill:8080/proxy/models/switch \
+  -H "Content-Type: application/json" \
+  -d '{"model_id": "deepseek-r1-fp8"}'
+```
+
+### Operations
+
+- **`POST /proxy/operations/start`** - Manually start the vLLM pod
+- **`POST /proxy/operations/stop`** - Manually stop the vLLM pod
+
+### Metrics & Monitoring
 
 - **`/proxy/metrics`** - vLLM-Chill proxy metrics (autoscaling, requests, latency)
 - **`/metrics`** - vLLM backend metrics (model inference, GPU usage) - proxied to vLLM when running
+- **`/proxy/stats`** - GPU statistics
+- **`/proxy/version`** - Version information
 
-Both endpoints are accessible through the same service, allowing separate monitoring of proxy and backend.
+Both metrics endpoints are accessible through the same service, allowing separate monitoring of proxy and backend.
 
 ## Conclusion
 

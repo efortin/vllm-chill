@@ -41,8 +41,13 @@ kubectl create secret generic hf-token-secret -n vllm \
 kubectl apply -f manifests/kubernetes-with-model-switching.yaml
 
 # Option B: Build and push locally
+# Using Task (recommended)
+task docker:dev  # Builds and pushes :dev tag
+
+# Or using docker directly
 docker build -t docker.io/efortin/vllm-chill:latest .
 docker push docker.io/efortin/vllm-chill:latest
+
 kubectl apply -f manifests/kubernetes-with-model-switching.yaml
 ```
 

@@ -1,7 +1,7 @@
 version: '3'
 
 vars:
-  IMAGE: '{{.IMAGE | default "vllm-chill"}}'
+  IMAGE: '{{.IMAGE | default "efortin/vllm-chill"}}'
   TAG: '{{.TAG | default "latest"}}'
 
 tasks:
@@ -39,6 +39,13 @@ tasks:
     cmds:
       - "docker buildx build --platform linux/amd64,linux/arm64 -t {{.IMAGE}}:{{.TAG}} --push ."
       - 'echo "image pushed: {{.IMAGE}}:{{.TAG}}"'
+
+  # Task 5a: Build & Push Docker :dev image
+  "docker:dev":
+    desc: "Build and push Docker image with :dev tag"
+    cmds:
+      - "docker buildx build --platform linux/amd64 -t {{.IMAGE}}:dev --push ."
+      - 'echo "image pushed: {{.IMAGE}}:dev"'
 
   # Task 6: Build
   build:

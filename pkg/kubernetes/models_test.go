@@ -10,7 +10,6 @@ func TestModelConfig_ToConfigMapData(t *testing.T) {
 		ServedModelName:        "test-model",
 		ToolCallParser:         "hermes",
 		ReasoningParser:        "deepseek_r1",
-		TensorParallelSize:     "2",
 		MaxModelLen:            "65536",
 		GPUMemoryUtilization:   "0.91",
 		EnableChunkedPrefill:   "true",
@@ -19,7 +18,6 @@ func TestModelConfig_ToConfigMapData(t *testing.T) {
 		Dtype:                  "float16",
 		DisableCustomAllReduce: "true",
 		EnablePrefixCaching:    "true",
-		CPUOffloadGB:           "0",
 		EnableAutoToolChoice:   "true",
 	}
 
@@ -33,7 +31,6 @@ func TestModelConfig_ToConfigMapData(t *testing.T) {
 		{"SERVED_MODEL_NAME", "test-model"},
 		{"TOOL_CALL_PARSER", "hermes"},
 		{"REASONING_PARSER", "deepseek_r1"},
-		{"TENSOR_PARALLEL_SIZE", "2"},
 		{"MAX_MODEL_LEN", "65536"},
 		{"GPU_MEMORY_UTILIZATION", "0.91"},
 		{"ENABLE_CHUNKED_PREFILL", "true"},
@@ -42,7 +39,6 @@ func TestModelConfig_ToConfigMapData(t *testing.T) {
 		{"DTYPE", "float16"},
 		{"DISABLE_CUSTOM_ALL_REDUCE", "true"},
 		{"ENABLE_PREFIX_CACHING", "true"},
-		{"CPU_OFFLOAD_GB", "0"},
 		{"ENABLE_AUTO_TOOL_CHOICE", "true"},
 	}
 
@@ -61,7 +57,6 @@ func TestFromConfigMapData(t *testing.T) {
 		"SERVED_MODEL_NAME":         "test-model",
 		"TOOL_CALL_PARSER":          "hermes",
 		"REASONING_PARSER":          "deepseek_r1",
-		"TENSOR_PARALLEL_SIZE":      "2",
 		"MAX_MODEL_LEN":             "65536",
 		"GPU_MEMORY_UTILIZATION":    "0.91",
 		"ENABLE_CHUNKED_PREFILL":    "true",
@@ -70,7 +65,6 @@ func TestFromConfigMapData(t *testing.T) {
 		"DTYPE":                     "float16",
 		"DISABLE_CUSTOM_ALL_REDUCE": "true",
 		"ENABLE_PREFIX_CACHING":     "true",
-		"CPU_OFFLOAD_GB":            "0",
 		"ENABLE_AUTO_TOOL_CHOICE":   "true",
 	}
 
@@ -85,9 +79,7 @@ func TestFromConfigMapData(t *testing.T) {
 	if config.ToolCallParser != "hermes" {
 		t.Errorf("ToolCallParser = %v, want hermes", config.ToolCallParser)
 	}
-	if config.TensorParallelSize != "2" {
-		t.Errorf("TensorParallelSize = %v, want 2", config.TensorParallelSize)
-	}
+	// Note: TensorParallelSize and CPUOffloadGB are now infrastructure-level
 }
 
 func TestModelConfig_Validate(t *testing.T) {

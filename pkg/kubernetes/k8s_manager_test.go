@@ -25,45 +25,16 @@ func TestK8sManager_EnsureConfigMap(t *testing.T) {
 
 	ctx := context.Background()
 
-	t.Run("create new configmap", func(t *testing.T) {
+	t.Run("deprecated - returns immediately", func(t *testing.T) {
 		err := manager.ensureConfigMap(ctx, modelConfig)
 		if err != nil {
 			t.Fatalf("ensureConfigMap() error = %v", err)
 		}
 
-		// Verify ConfigMap was created
-		cm, err := clientset.CoreV1().ConfigMaps("test-ns").Get(ctx, "vllm-config", metav1.GetOptions{})
-		if err != nil {
-			t.Fatalf("Failed to get ConfigMap: %v", err)
-		}
-
-		if cm.Data["MODEL_NAME"] != "test/model" {
-			t.Errorf("MODEL_NAME = %v, want test/model", cm.Data["MODEL_NAME"])
-		}
-		if cm.Data["SERVED_MODEL_NAME"] != "test-model" {
-			t.Errorf("SERVED_MODEL_NAME = %v, want test-model", cm.Data["SERVED_MODEL_NAME"])
-		}
-	})
-
-	t.Run("update existing configmap", func(t *testing.T) {
-		updatedModel := &ModelConfig{
-			ModelName:       "test/updated-model",
-			ServedModelName: "updated-model",
-		}
-
-		err := manager.ensureConfigMap(ctx, updatedModel)
-		if err != nil {
-			t.Fatalf("ensureConfigMap() error = %v", err)
-		}
-
-		// Verify ConfigMap was updated
-		cm, err := clientset.CoreV1().ConfigMaps("test-ns").Get(ctx, "vllm-config", metav1.GetOptions{})
-		if err != nil {
-			t.Fatalf("Failed to get ConfigMap: %v", err)
-		}
-
-		if cm.Data["MODEL_NAME"] != "test/updated-model" {
-			t.Errorf("MODEL_NAME = %v, want test/updated-model", cm.Data["MODEL_NAME"])
+		// Verify ConfigMap was NOT created (deprecated function)
+		_, err = clientset.CoreV1().ConfigMaps("test-ns").Get(ctx, "vllm-config", metav1.GetOptions{})
+		if err == nil {
+			t.Error("ConfigMap should not be created (function is deprecated)")
 		}
 	})
 }
@@ -120,14 +91,14 @@ func TestK8sManager_CreatePod(t *testing.T) {
 		Namespace:     "test-ns",
 		Deployment:    "vllm",
 		ConfigMapName: "vllm-config",
+		GPUCount:      2,
+		CPUOffloadGB:  0,
 	}
 	manager := NewK8sManager(clientset, config)
 
 	modelConfig := &ModelConfig{
 		ModelName:              "test/model",
 		ServedModelName:        "test-model",
-		TensorParallelSize:     "1",
-		GPUCount:               "2",
 		MaxModelLen:            "8192",
 		GPUMemoryUtilization:   "0.9",
 		EnableChunkedPrefill:   "false",
@@ -136,7 +107,6 @@ func TestK8sManager_CreatePod(t *testing.T) {
 		Dtype:                  "auto",
 		DisableCustomAllReduce: "false",
 		EnablePrefixCaching:    "true",
-		CPUOffloadGB:           "0",
 		EnableAutoToolChoice:   "true",
 		ToolCallParser:         "hermes",
 	}
@@ -188,11 +158,7 @@ func TestK8sManager_EnsureVLLMResources(t *testing.T) {
 		t.Fatalf("EnsureVLLMResources() error = %v", err)
 	}
 
-	// Verify all resources were created
-	_, err = clientset.CoreV1().ConfigMaps("test-ns").Get(ctx, "vllm-config", metav1.GetOptions{})
-	if err != nil {
-		t.Errorf("ConfigMap not created: %v", err)
-	}
+	// Note: ConfigMap is deprecated and no longer created
 
 	_, err = clientset.CoreV1().Services("test-ns").Get(ctx, "vllm-api", metav1.GetOptions{})
 	if err != nil {
@@ -249,13 +215,14 @@ func TestK8sManager_BuildSystemEnvVars(t *testing.T) {
 func TestK8sManager_BuildPodSpec(t *testing.T) {
 	config := &Config{
 		ConfigMapName: "test-config",
+		GPUCount:      2,
+		CPUOffloadGB:  0,
 	}
 	manager := NewK8sManager(nil, config)
 
 	modelConfig := &ModelConfig{
 		ModelName:              "test/model",
 		ServedModelName:        "test-model",
-		TensorParallelSize:     "1",
 		MaxModelLen:            "8192",
 		GPUMemoryUtilization:   "0.9",
 		EnableChunkedPrefill:   "false",
@@ -264,7 +231,6 @@ func TestK8sManager_BuildPodSpec(t *testing.T) {
 		Dtype:                  "auto",
 		DisableCustomAllReduce: "false",
 		EnablePrefixCaching:    "true",
-		CPUOffloadGB:           "0",
 		EnableAutoToolChoice:   "true",
 		ToolCallParser:         "hermes",
 	}
@@ -365,14 +331,7 @@ func TestK8sManager_WithExistingResources(t *testing.T) {
 		t.Fatalf("EnsureVLLMResources() error = %v", err)
 	}
 
-	// Verify ConfigMap was updated
-	cm, err := clientset.CoreV1().ConfigMaps("test-ns").Get(ctx, "vllm-config", metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("Failed to get ConfigMap: %v", err)
-	}
-	if cm.Data["MODEL_NAME"] != "new/model" {
-		t.Errorf("ConfigMap not updated, MODEL_NAME = %v, want new/model", cm.Data["MODEL_NAME"])
-	}
+	// Note: ConfigMap is deprecated and no longer updated
 
 	// Verify Service still exists
 	_, err = clientset.CoreV1().Services("test-ns").Get(ctx, "vllm-api", metav1.GetOptions{})

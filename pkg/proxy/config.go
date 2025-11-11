@@ -14,6 +14,8 @@ type Config struct {
 	Port          string
 	LogOutput     bool
 	ModelID       string // Static model ID to load from CRD
+	GPUCount      int    // Number of GPUs to allocate (infrastructure-level)
+	CPUOffloadGB  int    // CPU offload in GB (infrastructure-level)
 }
 
 // Validate checks if the configuration is valid

@@ -3,12 +3,14 @@ package kubernetes
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 
 	"github.com/efortin/vllm-chill/pkg/apis/vllm/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
 )
 
@@ -83,13 +85,7 @@ func (c *CRDClient) convertToModelConfig(u *unstructured.Unstructured) (*ModelCo
 		config.ReasoningParser = reasoningParser
 	}
 
-	// GPU configuration
-	if gpuCount, found, _ := unstructured.NestedInt64(spec, "gpuCount"); found {
-		config.GPUCount = strconv.FormatInt(gpuCount, 10)
-		config.TensorParallelSize = config.GPUCount // Use gpuCount for tensor parallelism
-	}
-
-	// vLLM runtime parameters
+	// vLLM runtime parameters (model-specific only)
 	if maxModelLen, found, _ := unstructured.NestedInt64(spec, "maxModelLen"); found {
 		config.MaxModelLen = strconv.FormatInt(maxModelLen, 10)
 	}
@@ -114,12 +110,11 @@ func (c *CRDClient) convertToModelConfig(u *unstructured.Unstructured) (*ModelCo
 	if enablePrefixCaching, found, _ := unstructured.NestedBool(spec, "enablePrefixCaching"); found {
 		config.EnablePrefixCaching = strconv.FormatBool(enablePrefixCaching)
 	}
-	if cpuOffloadGB, found, _ := unstructured.NestedInt64(spec, "cpuOffloadGB"); found {
-		config.CPUOffloadGB = strconv.FormatInt(cpuOffloadGB, 10)
-	}
 	if enableAutoToolChoice, found, _ := unstructured.NestedBool(spec, "enableAutoToolChoice"); found {
 		config.EnableAutoToolChoice = strconv.FormatBool(enableAutoToolChoice)
 	}
+
+	// Note: gpuCount and cpuOffloadGB are now infrastructure-level config, not model-level
 
 	return config, nil
 }
@@ -167,6 +162,67 @@ func convertUnstructuredToVLLMModel(u *unstructured.Unstructured, model *v1alpha
 	if servedModelName, found, _ := unstructured.NestedString(spec, "servedModelName"); found {
 		model.Spec.ServedModelName = servedModelName
 	}
+
+	return nil
+}
+
+// WatchModel watches a specific VLLMModel for changes
+// Calls the callback function when the model is modified
+func (c *CRDClient) WatchModel(ctx context.Context, modelName string, callback func()) error {
+	// Get the model first to get its resource version
+	list, err := c.dynamicClient.Resource(vllmModelGVR).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to list models: %w", err)
+	}
+
+	// Find the model's resource version
+	var resourceVersion string
+	for _, item := range list.Items {
+		if item.GetName() == modelName {
+			resourceVersion = item.GetResourceVersion()
+			break
+		}
+	}
+
+	if resourceVersion == "" {
+		return fmt.Errorf("model %s not found", modelName)
+	}
+
+	// Start watching from this resource version
+	watcher, err := c.dynamicClient.Resource(vllmModelGVR).Watch(ctx, metav1.ListOptions{
+		FieldSelector:   fmt.Sprintf("metadata.name=%s", modelName),
+		ResourceVersion: resourceVersion,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create watcher: %w", err)
+	}
+
+	go func() {
+		defer watcher.Stop()
+		log.Printf("Started watching VLLMModel: %s", modelName)
+
+		for {
+			select {
+			case <-ctx.Done():
+				log.Printf("Stopped watching VLLMModel: %s", modelName)
+				return
+			case event, ok := <-watcher.ResultChan():
+				if !ok {
+					log.Printf("Watch channel closed for VLLMModel: %s, restarting watch", modelName)
+					// Recreate watcher
+					if err := c.WatchModel(ctx, modelName, callback); err != nil {
+						log.Printf("Failed to restart watch: %v", err)
+					}
+					return
+				}
+
+				if event.Type == watch.Modified {
+					log.Printf("VLLMModel %s was modified, triggering callback", modelName)
+					callback()
+				}
+			}
+		}
+	}()
 
 	return nil
 }

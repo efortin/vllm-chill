@@ -54,7 +54,7 @@ dockers:
       - "{{ .Env.DOCKER_REGISTRY }}/{{ .Env.DOCKER_IMAGE }}:{{ .Version }}"
       - "{{ .Env.DOCKER_REGISTRY }}/{{ .Env.DOCKER_IMAGE }}:latest"
     use: buildx
-    dockerfile: Dockerfile.goreleaser
+    dockerfile: Dockerfile
     extra_files:
       - go.mod
       - go.sum
