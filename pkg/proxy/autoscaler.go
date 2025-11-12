@@ -682,16 +682,35 @@ func (as *AutoScaler) Run() error {
 	// Default proxy handler for all other routes
 	router.NoRoute(as.ginProxyHandler)
 
-	log.Printf("   Metrics endpoint: http://0.0.0.0:%s/proxy/metrics", as.config.Port)
-	log.Printf("   GPU stats endpoint: http://0.0.0.0:%s/proxy/stats", as.config.Port)
-	log.Printf("   Version endpoint: http://0.0.0.0:%s/proxy/version", as.config.Port)
-	log.Printf("   Manual start endpoint: http://0.0.0.0:%s/proxy/operations/start", as.config.Port)
-	log.Printf("   Manual stop endpoint: http://0.0.0.0:%s/proxy/operations/stop", as.config.Port)
-	log.Printf("   Available models endpoint: http://0.0.0.0:%s/proxy/models/available", as.config.Port)
-	log.Printf("   Running model endpoint: http://0.0.0.0:%s/proxy/models/running", as.config.Port)
-	log.Printf("   Switch model endpoint: http://0.0.0.0:%s/proxy/models/switch", as.config.Port)
+	// Log all registered endpoints dynamically
+	as.logRegisteredRoutes(router)
 
 	return router.Run(":" + as.config.Port)
+}
+
+// logRegisteredRoutes dynamically logs all registered routes from the Gin router
+func (as *AutoScaler) logRegisteredRoutes(router *gin.Engine) {
+	// Determine base URL for endpoint logging
+	baseURL := as.config.PublicEndpoint
+	if baseURL == "" {
+		baseURL = "http://0.0.0.0:" + as.config.Port
+	}
+
+	// Get all routes from the router
+	routes := router.Routes()
+
+	// Filter and log only the proxy routes (excluding health and readyz)
+	for _, route := range routes {
+		// Skip health check endpoints and internal routes
+		if route.Path == "/health" || route.Path == "/readyz" {
+			continue
+		}
+
+		// Only log routes that start with /proxy
+		if len(route.Path) >= 6 && route.Path[:6] == "/proxy" {
+			log.Printf("   %-4s %s%s", route.Method, baseURL, route.Path)
+		}
+	}
 }
 
 // startModelWatch starts watching the active model for configuration changes

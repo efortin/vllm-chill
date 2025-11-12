@@ -7,15 +7,16 @@ import (
 
 // Config holds the configuration for the AutoScaler
 type Config struct {
-	Namespace     string
-	Deployment    string
-	ConfigMapName string
-	IdleTimeout   string
-	Port          string
-	LogOutput     bool
-	ModelID       string // Static model ID to load from CRD
-	GPUCount      int    // Number of GPUs to allocate (infrastructure-level)
-	CPUOffloadGB  int    // CPU offload in GB (infrastructure-level)
+	Namespace      string
+	Deployment     string
+	ConfigMapName  string
+	IdleTimeout    string
+	Port           string
+	LogOutput      bool
+	ModelID        string // Static model ID to load from CRD
+	GPUCount       int    // Number of GPUs to allocate (infrastructure-level)
+	CPUOffloadGB   int    // CPU offload in GB (infrastructure-level)
+	PublicEndpoint string // Public-facing endpoint URL (e.g., https://vllm.sir-alfred.io)
 }
 
 // Validate checks if the configuration is valid
