@@ -339,3 +339,263 @@ func TestK8sManager_WithExistingResources(t *testing.T) {
 		t.Errorf("Service should still exist: %v", err)
 	}
 }
+
+func TestK8sManager_DeletePod(t *testing.T) {
+	// Pre-create a pod
+	existingPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "vllm",
+			Namespace: "test-ns",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "vllm", Image: "vllm/vllm-openai:latest"},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(existingPod)
+	config := &Config{
+		Namespace:  "test-ns",
+		Deployment: "vllm",
+	}
+	manager := NewK8sManager(clientset, config)
+
+	ctx := context.Background()
+
+	t.Run("delete existing pod", func(t *testing.T) {
+		err := manager.DeletePod(ctx)
+		if err != nil {
+			t.Fatalf("DeletePod() error = %v", err)
+		}
+
+		// Verify Pod was deleted
+		_, err = clientset.CoreV1().Pods("test-ns").Get(ctx, "vllm", metav1.GetOptions{})
+		if err == nil {
+			t.Error("Pod should have been deleted")
+		}
+	})
+
+	t.Run("delete non-existent pod", func(t *testing.T) {
+		// Should not error when pod doesn't exist
+		err := manager.DeletePod(ctx)
+		if err != nil {
+			t.Fatalf("DeletePod() should not error on non-existent pod: %v", err)
+		}
+	})
+}
+
+func TestK8sManager_GetPod(t *testing.T) {
+	existingPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "vllm",
+			Namespace: "test-ns",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "vllm", Image: "vllm/vllm-openai:latest"},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(existingPod)
+	config := &Config{
+		Namespace:  "test-ns",
+		Deployment: "vllm",
+	}
+	manager := NewK8sManager(clientset, config)
+
+	ctx := context.Background()
+
+	t.Run("get existing pod", func(t *testing.T) {
+		pod, err := manager.GetPod(ctx)
+		if err != nil {
+			t.Fatalf("GetPod() error = %v", err)
+		}
+
+		if pod.Name != "vllm" {
+			t.Errorf("Pod name = %v, want vllm", pod.Name)
+		}
+	})
+}
+
+func TestK8sManager_PodExists(t *testing.T) {
+	existingPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "vllm",
+			Namespace: "test-ns",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "vllm", Image: "vllm/vllm-openai:latest"},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(existingPod)
+	config := &Config{
+		Namespace:  "test-ns",
+		Deployment: "vllm",
+	}
+	manager := NewK8sManager(clientset, config)
+
+	ctx := context.Background()
+
+	t.Run("pod exists", func(t *testing.T) {
+		exists, err := manager.PodExists(ctx)
+		if err != nil {
+			t.Fatalf("PodExists() error = %v", err)
+		}
+
+		if !exists {
+			t.Error("Pod should exist")
+		}
+	})
+
+	t.Run("pod does not exist", func(t *testing.T) {
+		emptyClientset := fake.NewSimpleClientset()
+		emptyManager := NewK8sManager(emptyClientset, config)
+
+		exists, err := emptyManager.PodExists(ctx)
+		if err != nil {
+			t.Fatalf("PodExists() error = %v", err)
+		}
+
+		if exists {
+			t.Error("Pod should not exist")
+		}
+	})
+}
+
+func TestK8sManager_VerifyPodConfig(t *testing.T) {
+	modelConfig := &ModelConfig{
+		ModelName:              "test/model",
+		ServedModelName:        "test-model",
+		MaxModelLen:            "8192",
+		GPUMemoryUtilization:   "0.9",
+		EnableChunkedPrefill:   "false",
+		MaxNumBatchedTokens:    "8192",
+		MaxNumSeqs:             "256",
+		Dtype:                  "auto",
+		DisableCustomAllReduce: "false",
+		EnablePrefixCaching:    "true",
+		EnableAutoToolChoice:   "true",
+		ToolCallParser:         "hermes",
+	}
+
+	config := &Config{
+		Namespace:     "test-ns",
+		Deployment:    "vllm",
+		GPUCount:      2,
+		CPUOffloadGB:  0,
+		ConfigMapName: "vllm-config",
+	}
+	manager := NewK8sManager(nil, config)
+
+	// Build the actual args that would be generated
+	expectedArgs := manager.buildVLLMArgs(modelConfig)
+
+	// Create a pod with matching args - must be Running to trigger verification
+	existingPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "vllm",
+			Namespace: "test-ns",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "vllm",
+					Image: "vllm/vllm-openai:latest",
+					Args:  expectedArgs,
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(existingPod)
+	manager = NewK8sManager(clientset, config)
+
+	ctx := context.Background()
+
+	t.Run("matching config", func(t *testing.T) {
+		matches, err := manager.VerifyPodConfig(ctx, modelConfig)
+		if err != nil {
+			t.Fatalf("VerifyPodConfig() error = %v", err)
+		}
+
+		if !matches {
+			t.Error("Config should match")
+		}
+	})
+
+	t.Run("non-matching config", func(t *testing.T) {
+		// Manually create different args (simple hardcoded args to avoid buildVLLMArgs issues)
+		differentArgs := []string{
+			"--model", "different/model",
+			"--served-model-name", "different-model",
+			"--max-model-len", "4096",
+		}
+
+		// Create a pod with the different config
+		differentPod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "vllm",
+				Namespace: "test-ns",
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name:  "vllm",
+						Image: "vllm/vllm-openai:latest",
+						Args:  differentArgs,
+					},
+				},
+			},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+			},
+		}
+
+		differentClientset := fake.NewSimpleClientset(differentPod)
+		differentManager := NewK8sManager(differentClientset, config)
+
+		// Try to verify with the original model config (should not match)
+		matches, err := differentManager.VerifyPodConfig(ctx, modelConfig)
+		if err != nil {
+			t.Fatalf("VerifyPodConfig() error = %v", err)
+		}
+
+		if matches {
+			t.Error("Config should not match")
+		}
+	})
+}
+
+func TestArgsToMap(t *testing.T) {
+	args := []string{
+		"--model", "test/model",
+		"--served-model-name", "test-model",
+		"--max-model-len", "8192",
+		"--gpu-memory-utilization", "0.9",
+	}
+
+	argsMap := argsToMap(args)
+
+	expectedMap := map[string]string{
+		"--model":                  "test/model",
+		"--served-model-name":      "test-model",
+		"--max-model-len":          "8192",
+		"--gpu-memory-utilization": "0.9",
+	}
+
+	for key, expectedValue := range expectedMap {
+		if value, ok := argsMap[key]; !ok {
+			t.Errorf("Missing key %s", key)
+		} else if value != expectedValue {
+			t.Errorf("Key %s: got %v, want %v", key, value, expectedValue)
+		}
+	}
+}

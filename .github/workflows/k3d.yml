@@ -17,118 +17,35 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+        cache: true
+        cache-dependency-path: go.sum
+
+    - name: Install Task
+      run: sudo snap install task --classic
+
     - name: Install k3d
       run: |
         curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
 
-    - name: Create k3d cluster
+    - name: Setup k3d cluster
       run: |
-        k3d cluster create vllm-test \
-          --agents 1 \
-          --wait \
-          --timeout 2m
+        task k3d:setup
 
-    - name: Verify cluster
+    - name: Run integration tests
       run: |
-        kubectl cluster-info
-        kubectl get nodes
-
-    - name: Create namespace
-      run: |
-        kubectl create namespace vllm
-
-    - name: Install VLLMModel CRD
-      run: |
-        kubectl apply -f manifests/crds/vllmmodel.yaml
-        # Wait for CRD to be ready with retry logic
-        for i in {1..30}; do
-          if kubectl wait --for condition=established --timeout=2s crd/models.vllm.sir-alfred.io 2>/dev/null; then
-            echo "CRD established successfully"
-            break
-          fi
-          echo "Waiting for CRD to be established (attempt $i/30)..."
-          sleep 2
-        done
-        # Final check
-        kubectl get crd models.vllm.sir-alfred.io
-
-    - name: Create test VLLMModel
-      run: |
-        kubectl apply -f manifests/examples/qwen3-coder-model.yaml
-        kubectl apply -f manifests/examples/deepseek-r1-model.yaml
-        kubectl apply -f manifests/examples/opencoder-model.yaml
+        go test -v -tags=integration ./pkg/kubernetes -timeout 5m
 
     - name: Verify VLLMModels
       run: |
         kubectl get models
         kubectl get model qwen3-coder-30b-fp8 -o yaml
 
-    - name: Deploy RBAC only
-      run: |
-        # Create minimal RBAC for testing (no actual deployment)
-        cat > test-rbac.yaml << 'EOF'
-        apiVersion: v1
-        kind: ServiceAccount
-        metadata:
-          name: vllm-chill
-          namespace: vllm
-        ---
-        apiVersion: rbac.authorization.k8s.io/v1
-        kind: Role
-        metadata:
-          name: vllm-chill
-          namespace: vllm
-        rules:
-        - apiGroups: ["apps"]
-          resources: ["deployments"]
-          verbs: ["get", "list", "create", "update", "patch"]
-        - apiGroups: [""]
-          resources: ["pods"]
-          verbs: ["list", "delete", "deletecollection"]
-        - apiGroups: [""]
-          resources: ["configmaps"]
-          verbs: ["get", "create", "update", "patch"]
-        - apiGroups: [""]
-          resources: ["services"]
-          verbs: ["get", "create", "update", "patch"]
-        ---
-        apiVersion: rbac.authorization.k8s.io/v1
-        kind: ClusterRole
-        metadata:
-          name: vllm-chill-models
-        rules:
-        - apiGroups: ["vllm.sir-alfred.io"]
-          resources: ["models"]
-          verbs: ["get", "list"]
-        ---
-        apiVersion: rbac.authorization.k8s.io/v1
-        kind: ClusterRoleBinding
-        metadata:
-          name: vllm-chill-models
-        subjects:
-        - kind: ServiceAccount
-          name: vllm-chill
-          namespace: vllm
-        roleRef:
-          kind: ClusterRole
-          name: vllm-chill-models
-          apiGroup: rbac.authorization.k8s.io
-        ---
-        apiVersion: rbac.authorization.k8s.io/v1
-        kind: RoleBinding
-        metadata:
-          name: vllm-chill
-          namespace: vllm
-        subjects:
-        - kind: ServiceAccount
-          name: vllm-chill
-          namespace: vllm
-        roleRef:
-          kind: Role
-          name: vllm-chill
-          apiGroup: rbac.authorization.k8s.io
-        EOF
-        kubectl apply -f test-rbac.yaml
+    - name: Deploy RBAC
+      run: kubectl apply -f manifests/ci/rbac.yaml
 
     - name: Verify RBAC permissions
       run: |
@@ -149,10 +66,6 @@ jobs:
         
         echo "Validating deepseek-r1 model..."
         kubectl get model deepseek-r1-fp8 -o jsonpath='{.spec.servedModelName}'
-        echo ""
-        
-        echo "Validating opencoder model..."
-        kubectl get model opencoder-30b-fp8 -o jsonpath='{.spec.servedModelName}'
         echo ""
 
     - name: Test model listing

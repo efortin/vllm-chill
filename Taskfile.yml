@@ -3,6 +3,9 @@ version: '3'
 vars:
   IMAGE: '{{.IMAGE | default "efortin/vllm-chill"}}'
   TAG: '{{.TAG | default "latest"}}'
+  CLUSTER_NAME: vllm-test
+  K8S_CONTEXT: k3d-vllm-test
+  NAMESPACE: vllm
 
 tasks:
   # Task 1: Development
@@ -68,3 +71,134 @@ tasks:
       - task: test
       - task: build
       - echo "All checks passed!"
+
+  # Task 9: Install k3d if needed
+  "k3d:install":
+    desc: "Install k3d if not present"
+    internal: true
+    status:
+      - command -v k3d
+    cmds:
+      - echo "Installing k3d..."
+      - curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+
+  # Task 10: Create k3d cluster
+  "k3d:create":
+    desc: "Create k3d cluster"
+    internal: true
+    deps: [k3d:install]
+    status:
+      - k3d cluster list | grep -q "{{.CLUSTER_NAME}}"
+    cmds:
+      - echo "Creating k3d cluster..."
+      - k3d cluster create {{.CLUSTER_NAME}} --agents 1 --wait --timeout 2m
+      - kubectl cluster-info --context {{.K8S_CONTEXT}}
+      - kubectl get nodes --context {{.K8S_CONTEXT}}
+
+  # Task 11: Create namespace
+  "k3d:namespace":
+    desc: "Create vllm namespace"
+    internal: true
+    cmds:
+      - kubectl create namespace {{.NAMESPACE}} --context {{.K8S_CONTEXT}} --dry-run=client -o yaml | kubectl apply --context {{.K8S_CONTEXT}} -f -
+      - echo "Namespace {{.NAMESPACE}} ready"
+
+  # Task 12: Install CRD
+  "k3d:crd":
+    desc: "Install VLLMModel CRD"
+    internal: true
+    cmds:
+      - kubectl apply --context {{.K8S_CONTEXT}} -f manifests/crds/vllmmodel.yaml
+      - |
+        echo "Waiting for CRD to be established..."
+        for i in {1..30}; do
+          if kubectl --context {{.K8S_CONTEXT}} wait --for condition=established --timeout=2s crd/models.vllm.sir-alfred.io 2>/dev/null; then
+            echo "CRD established successfully"
+            break
+          fi
+          echo "Waiting for CRD... (attempt $i/30)"
+          sleep 2
+        done
+      - kubectl get crd models.vllm.sir-alfred.io --context {{.K8S_CONTEXT}}
+
+  # Task 13: Create test models
+  "k3d:models":
+    desc: "Create test VLLMModel resources"
+    internal: true
+    cmds:
+      - kubectl apply --context {{.K8S_CONTEXT}} -f manifests/examples/qwen3-coder-model.yaml
+      - kubectl apply --context {{.K8S_CONTEXT}} -f manifests/examples/deepseek-r1-model.yaml
+      - sleep 2
+      - kubectl get models --context {{.K8S_CONTEXT}}
+
+  # Task 14: Setup k3d cluster (orchestrates all subtasks)
+  "k3d:setup":
+    desc: "Create k3d cluster with CRDs and test models"
+    cmds:
+      - task: k3d:create
+      - task: k3d:namespace
+      - task: k3d:crd
+      - task: k3d:models
+      - echo "k3d cluster ready for integration tests"
+
+  # Task 15: Teardown k3d cluster
+  "k3d:teardown":
+    desc: "Delete k3d cluster"
+    cmds:
+      - k3d cluster delete {{.CLUSTER_NAME}} || true
+      - echo "k3d cluster deleted"
+
+  # Task 16: Run integration tests
+  "test:integration":
+    desc: "Run integration tests (requires k3d cluster)"
+    deps: [k3d:setup]
+    env:
+      KUBECONFIG: "{{.HOME}}/.kube/config"
+    cmds:
+      - kubectl config use-context {{.K8S_CONTEXT}}
+      - echo "Running integration tests with context {{.K8S_CONTEXT}}..."
+      - go test -v -tags=integration ./pkg/kubernetes -timeout 5m
+      - echo "Integration tests completed"
+
+  # Task 17: Integration tests with coverage
+  "test:integration:coverage":
+    desc: "Run integration tests with coverage report"
+    deps: [k3d:setup]
+    env:
+      KUBECONFIG: "{{.HOME}}/.kube/config"
+    cmds:
+      - kubectl config use-context {{.K8S_CONTEXT}}
+      - echo "Running integration tests with coverage..."
+      - go test -v -tags=integration ./pkg/kubernetes -coverprofile=integration-coverage.out -timeout 5m
+      - go tool cover -func=integration-coverage.out | tail -1
+      - go tool cover -html=integration-coverage.out -o integration-coverage.html
+      - echo "Coverage report generated at integration-coverage.html"
+
+  # Task 18: Run all tests (unit + integration)
+  "test:all":
+    desc: "Run all tests (unit + integration)"
+    cmds:
+      - task: test
+      - task: test:integration
+      - echo "All tests passed"
+
+  # Task 19: Combined coverage (unit + integration)
+  "test:coverage:all":
+    desc: "Run all tests with combined coverage"
+    deps: [k3d:setup]
+    env:
+      KUBECONFIG: "{{.HOME}}/.kube/config"
+    cmds:
+      - kubectl config use-context {{.K8S_CONTEXT}}
+      - echo "Running unit tests with coverage..."
+      - go test -v -coverprofile=unit-coverage.out ./...
+      - echo "Running integration tests with coverage..."
+      - go test -v -tags=integration -coverprofile=integration-coverage.out ./pkg/kubernetes -timeout 5m
+      - |
+        echo "Merging coverage reports..."
+        echo "mode: set" > combined-coverage.out
+        tail -n +2 unit-coverage.out >> combined-coverage.out
+        tail -n +2 integration-coverage.out >> combined-coverage.out
+      - go tool cover -func=combined-coverage.out | tail -1
+      - go tool cover -html=combined-coverage.out -o combined-coverage.html
+      - echo "Combined coverage report generated at combined-coverage.html"

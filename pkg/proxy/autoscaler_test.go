@@ -1,10 +1,13 @@
 package proxy
 
 import (
+	"encoding/json"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 
 	"github.com/efortin/vllm-chill/pkg/stats"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -78,4 +81,42 @@ func TestUpdateActivityInterface(t *testing.T) {
 	// Should not panic
 	as.UpdateActivity()
 	assert.True(t, true)
+}
+
+func TestHealthHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	as := &AutoScaler{}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/health", nil)
+
+	as.healthHandler(c)
+
+	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, "OK", w.Body.String())
+}
+
+func TestVersionHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	as := &AutoScaler{
+		version:   "1.0.0",
+		commit:    "abc123",
+		buildDate: "2024-01-01",
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/version", nil)
+
+	as.versionHandler(c)
+
+	assert.Equal(t, 200, w.Code)
+
+	var response map[string]interface{}
+	err := json.NewDecoder(w.Body).Decode(&response)
+	assert.NoError(t, err)
+	assert.Equal(t, "1.0.0", response["version"])
+	assert.Equal(t, "abc123", response["commit"])
+	assert.Equal(t, "2024-01-01", response["build_date"])
 }

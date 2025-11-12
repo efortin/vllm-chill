@@ -272,3 +272,121 @@ func TestScalingValidation(t *testing.T) {
 		assert.Equal(t, int32(0), config.MaxReplicas)
 	})
 }
+
+func TestNewK8sAutoScaler(t *testing.T) {
+	config := Config{
+		Namespace:   "test",
+		Deployment:  "test-deployment",
+		MinReplicas: 1,
+		MaxReplicas: 3,
+	}
+
+	as := NewK8sAutoScaler(nil, config)
+
+	assert.NotNil(t, as)
+	assert.Equal(t, DefaultScaleDownDelay, as.config.ScaleDownDelay)
+	assert.Equal(t, DefaultCheckInterval, as.config.CheckInterval)
+	assert.Equal(t, int32(1), as.config.MinReplicas)
+	assert.Equal(t, int32(3), as.config.MaxReplicas)
+	assert.NotNil(t, as.scaleUpCond)
+}
+
+func TestNewK8sAutoScaler_WithCustomTimes(t *testing.T) {
+	config := Config{
+		Namespace:      "test",
+		Deployment:     "test-deployment",
+		ScaleDownDelay: 10 * time.Minute,
+		CheckInterval:  30 * time.Second,
+		MinReplicas:    2,
+		MaxReplicas:    5,
+	}
+
+	as := NewK8sAutoScaler(nil, config)
+
+	assert.NotNil(t, as)
+	assert.Equal(t, 10*time.Minute, as.config.ScaleDownDelay)
+	assert.Equal(t, 30*time.Second, as.config.CheckInterval)
+	assert.Equal(t, int32(2), as.config.MinReplicas)
+	assert.Equal(t, int32(5), as.config.MaxReplicas)
+}
+
+func TestK8sAutoScaler_UpdateActivity(t *testing.T) {
+	as := NewK8sAutoScaler(nil, Config{
+		Namespace:   "test",
+		Deployment:  "test",
+		MinReplicas: 1,
+		MaxReplicas: 1,
+	})
+
+	initialTime := as.lastActivity
+	time.Sleep(10 * time.Millisecond)
+
+	as.UpdateActivity()
+
+	assert.True(t, as.lastActivity.After(initialTime))
+}
+
+func TestK8sAutoScaler_IsActive(t *testing.T) {
+	tests := []struct {
+		name           string
+		scaleDownDelay time.Duration
+		timeSince      time.Duration
+		expectActive   bool
+	}{
+		{
+			name:           "recently active",
+			scaleDownDelay: 5 * time.Minute,
+			timeSince:      1 * time.Minute,
+			expectActive:   true,
+		},
+		{
+			name:           "inactive",
+			scaleDownDelay: 5 * time.Minute,
+			timeSince:      10 * time.Minute,
+			expectActive:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			as := NewK8sAutoScaler(nil, Config{
+				Namespace:      "test",
+				Deployment:     "test",
+				ScaleDownDelay: tt.scaleDownDelay,
+				MinReplicas:    1,
+				MaxReplicas:    1,
+			})
+
+			// Set last activity to the past
+			as.lastActivity = time.Now().Add(-tt.timeSince)
+
+			assert.Equal(t, tt.expectActive, as.IsActive())
+		})
+	}
+}
+
+func TestK8sAutoScaler_GetStatus(t *testing.T) {
+	as := NewK8sAutoScaler(nil, Config{
+		Namespace:   "test",
+		Deployment:  "test",
+		MinReplicas: 1,
+		MaxReplicas: 3,
+	})
+
+	// Test initial status
+	status := as.GetStatus()
+	assert.False(t, status.IsScaledUp)
+	assert.False(t, status.IsScalingUp)
+	assert.Equal(t, int32(0), status.Replicas)
+
+	// Simulate scaling up
+	as.mu.Lock()
+	as.currentReplicas = 3
+	as.isScalingUp = true
+	as.mu.Unlock()
+
+	status = as.GetStatus()
+	assert.True(t, status.IsScaledUp)
+	assert.True(t, status.IsScalingUp)
+	assert.Equal(t, int32(3), status.Replicas)
+}

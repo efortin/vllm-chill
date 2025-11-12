@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vllm-chill
+  namespace: vllm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vllm-chill
+  namespace: vllm
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "create", "update", "patch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["list", "delete", "deletecollection"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "create", "update", "patch"]
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vllm-chill-models
+rules:
+- apiGroups: ["vllm.sir-alfred.io"]
+  resources: ["models"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vllm-chill-models
+subjects:
+- kind: ServiceAccount
+  name: vllm-chill
+  namespace: vllm
+roleRef:
+  kind: ClusterRole
+  name: vllm-chill-models
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vllm-chill
+  namespace: vllm
+subjects:
+- kind: ServiceAccount
+  name: vllm-chill
+  namespace: vllm
+roleRef:
+  kind: Role
+  name: vllm-chill
+  apiGroup: rbac.authorization.k8s.io

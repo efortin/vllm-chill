@@ -819,7 +819,7 @@ func (as *AutoScaler) returnAvailableModels(ctx context.Context, w http.Response
 				"code":    "model_list_error",
 			},
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 		return
 	}
 
@@ -871,7 +871,7 @@ func (as *AutoScaler) sendLoadingMessage(w http.ResponseWriter, r *http.Request,
 	if r.Body != nil {
 		bodyBytes, err := io.ReadAll(r.Body)
 		if err == nil {
-			json.Unmarshal(bodyBytes, &reqBody)
+			_ = json.Unmarshal(bodyBytes, &reqBody)
 		}
 	}
 
@@ -906,7 +906,7 @@ func (as *AutoScaler) sendLoadingMessage(w http.ResponseWriter, r *http.Request,
 		}
 
 		data, _ := json.Marshal(chunk)
-		fmt.Fprintf(w, "data: %s\n\n", data)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 		if flusher != nil {
 			flusher.Flush()
 		}
@@ -927,8 +927,8 @@ func (as *AutoScaler) sendLoadingMessage(w http.ResponseWriter, r *http.Request,
 		}
 
 		finishData, _ := json.Marshal(finishChunk)
-		fmt.Fprintf(w, "data: %s\n\n", finishData)
-		fmt.Fprintf(w, "data: [DONE]\n\n")
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", finishData)
+		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 		if flusher != nil {
 			flusher.Flush()
 		}
@@ -960,6 +960,6 @@ func (as *AutoScaler) sendLoadingMessage(w http.ResponseWriter, r *http.Request,
 			},
 		}
 
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}
 }

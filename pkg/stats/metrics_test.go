@@ -123,3 +123,80 @@ func TestKVCacheInfo_IsValid(t *testing.T) {
 	invalidInfo := &KVCacheInfo{}
 	assert.False(t, invalidInfo.IsValid())
 }
+
+func TestMetricsRecorder_RecordRequest(t *testing.T) {
+	mr := NewMetricsRecorder()
+	defer mr.Stop()
+
+	// Test recording a successful request
+	mr.RecordRequest("POST", "/v1/chat/completions", 200, 500*time.Millisecond, 1024, 2048)
+
+	// Test recording a failed request
+	mr.RecordRequest("POST", "/v1/chat/completions", 500, 100*time.Millisecond, 512, 0)
+
+	// Test recording without payload sizes
+	mr.RecordRequest("GET", "/health", 200, 10*time.Millisecond, 0, 0)
+}
+
+func TestMetricsRecorder_RecordManagedOperation(t *testing.T) {
+	mr := NewMetricsRecorder()
+	defer mr.Stop()
+
+	// Test successful model switch
+	mr.RecordManagedOperation("model1", "model2", true, 30*time.Second)
+	assert.Equal(t, "model2", mr.currentModelName)
+
+	// Test failed model switch
+	mr.RecordManagedOperation("model2", "model3", false, 15*time.Second)
+	// Current model should still be model2
+	assert.Equal(t, "model2", mr.currentModelName)
+
+	// Test switching from empty model
+	mr.currentModelName = ""
+	mr.RecordManagedOperation("", "model1", true, 25*time.Second)
+	assert.Equal(t, "model1", mr.currentModelName)
+}
+
+func TestMetricsRecorder_RecordScaleOp(t *testing.T) {
+	mr := NewMetricsRecorder()
+	defer mr.Stop()
+
+	// Test successful scale up
+	mr.RecordScaleOp("up", true, 5*time.Second)
+
+	// Test failed scale down
+	mr.RecordScaleOp("down", false, 2*time.Second)
+}
+
+func TestMetricsRecorder_UpdateReplicas(t *testing.T) {
+	mr := NewMetricsRecorder()
+	defer mr.Stop()
+
+	// Test updating replicas
+	mr.UpdateReplicas(1)
+	mr.UpdateReplicas(0)
+	mr.UpdateReplicas(2)
+}
+
+func TestMetricsRecorder_IdleTimeUpdate(t *testing.T) {
+	mr := NewMetricsRecorder()
+	defer mr.Stop()
+
+	// Wait a bit and check that idle time is being tracked
+	time.Sleep(100 * time.Millisecond)
+
+	mr.mu.RLock()
+	idleTime := time.Since(mr.lastActivityTime)
+	mr.mu.RUnlock()
+
+	assert.True(t, idleTime > 0)
+
+	// Update activity and verify idle time resets
+	mr.UpdateActivity()
+
+	mr.mu.RLock()
+	newIdleTime := time.Since(mr.lastActivityTime)
+	mr.mu.RUnlock()
+
+	assert.True(t, newIdleTime < idleTime)
+}
