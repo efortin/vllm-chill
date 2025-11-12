@@ -343,3 +343,11 @@ func (br *bodyReader) Read(p []byte) (int, error) {
 func (br *bodyReader) BytesRead() int64 {
 	return br.bytesRead
 }
+
+// newBodyReaderFromBytes creates a new body reader from a byte slice
+func newBodyReaderFromBytes(data []byte) *bodyReader {
+	return &bodyReader{
+		ReadCloser: io.NopCloser(bytes.NewReader(data)),
+		bytesRead:  0,
+	}
+}

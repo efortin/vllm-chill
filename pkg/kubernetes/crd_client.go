@@ -20,6 +20,15 @@ var vllmModelGVR = schema.GroupVersionResource{
 	Resource: "models",
 }
 
+// ModelNotFoundError is returned when a requested model is not found
+type ModelNotFoundError struct {
+	ModelID string
+}
+
+func (e *ModelNotFoundError) Error() string {
+	return fmt.Sprintf("model '%s' not found", e.ModelID)
+}
+
 // CRDClient handles VLLMModel CRD operations
 type CRDClient struct {
 	dynamicClient dynamic.Interface

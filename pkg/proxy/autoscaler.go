@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/efortin/vllm-chill/pkg/kubernetes"
-	"github.com/efortin/vllm-chill/pkg/operation"
 	"github.com/efortin/vllm-chill/pkg/stats"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -309,14 +308,20 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	ctx := r.Context()
 
-	// Wrap request body to capture size
+	// Wrap request body to capture size and check for model parameter
 	var requestSize int64
+	var requestedModel string
 	if r.Body != nil {
 		bodyReader := newBodyReader(r.Body)
 		r.Body = bodyReader
 		defer func() {
 			requestSize = bodyReader.BytesRead()
 		}()
+
+		// Extract model from request body if this is a /v1/* endpoint
+		if len(r.URL.Path) >= 3 && r.URL.Path[:3] == "/v1" {
+			requestedModel = as.extractModelFromRequest(r)
+		}
 	}
 
 	// Wrap response writer to capture status and size
@@ -334,9 +339,54 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 	// Update activity
 	as.updateActivity()
 
+	// Handle automatic model switching for /v1/* endpoints
+	var modelSwitched bool
+	if requestedModel != "" {
+		if err := as.handleModelSwitch(ctx, requestedModel); err != nil {
+			// Check if this is a model not found error
+			if modelNotFoundErr, ok := err.(*ModelNotFoundError); ok {
+				log.Printf("Model not found: %s, returning available models", modelNotFoundErr.RequestedModel)
+				as.returnAvailableModels(ctx, rw, modelNotFoundErr.RequestedModel)
+				return
+			}
+
+			// Other errors
+			log.Printf("Failed to switch model to %s: %v", requestedModel, err)
+			rw.Header().Set("Content-Type", "application/json")
+			rw.WriteHeader(http.StatusServiceUnavailable)
+			response := map[string]interface{}{
+				"error": map[string]interface{}{
+					"message": fmt.Sprintf("Failed to switch to model %s: %v", requestedModel, err),
+					"type":    "model_switch_error",
+					"code":    "model_unavailable",
+				},
+			}
+			if err := json.NewEncoder(rw).Encode(response); err != nil {
+				log.Printf("Failed to encode response: %v", err)
+			}
+			return
+		}
+
+		// Check if we actually switched models
+		as.mu.RLock()
+		currentModel := as.activeModel
+		as.mu.RUnlock()
+		modelSwitched = (requestedModel == currentModel)
+	}
+
 	// Ensure deployment is scaled up
 	if err := as.ensureScaledUp(ctx); err != nil {
 		log.Printf("Failed to scale up: %v", err)
+
+		// Determine if this is a model loading scenario
+		isChat := r.URL.Path == "/v1/chat/completions"
+		if isChat && (modelSwitched || requestedModel != "") {
+			// Send loading message for chat completions
+			as.sendLoadingMessage(rw, r, requestedModel)
+			return
+		}
+
+		// Standard error response for non-chat endpoints
 		rw.Header().Set("Content-Type", "application/json")
 		rw.Header().Set("Retry-After", "10")
 		rw.WriteHeader(http.StatusServiceUnavailable)
@@ -517,101 +567,6 @@ type ModelInfo struct {
 	MaxModelLen     string `json:"maxModelLen"`
 }
 
-// availableModelsHandler returns all available models from CRDs
-func (as *AutoScaler) availableModelsHandler(c *gin.Context) {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
-	defer cancel()
-
-	models, err := as.ListModels(ctx)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": fmt.Sprintf("Failed to list models: %v", err),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"models": models,
-		"count":  len(models),
-	})
-}
-
-// runningModelHandler returns the currently active model
-func (as *AutoScaler) runningModelHandler(c *gin.Context) {
-	activeModel := as.GetActiveModel()
-	isRunning := as.IsRunning()
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
-	defer cancel()
-
-	// Get full model config
-	modelConfig, err := as.GetModelConfig(ctx, activeModel)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": fmt.Sprintf("Failed to get model config: %v", err),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"active_model": activeModel,
-		"running":      isRunning,
-		"config": gin.H{
-			"modelName":       modelConfig.ModelName,
-			"servedModelName": modelConfig.ServedModelName,
-			"maxModelLen":     modelConfig.MaxModelLen,
-			"toolCallParser":  modelConfig.ToolCallParser,
-			"reasoningParser": modelConfig.ReasoningParser,
-		},
-		"infrastructure": gin.H{
-			"gpuCount":     as.config.GPUCount,
-			"cpuOffloadGB": as.config.CPUOffloadGB,
-		},
-	})
-}
-
-// SwitchRequest represents a model switch request
-type SwitchRequest struct {
-	ModelID string `json:"model_id" binding:"required"`
-}
-
-// switchModelHandler switches to a different model
-func (as *AutoScaler) switchModelHandler(c *gin.Context) {
-	var req SwitchRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": fmt.Sprintf("Invalid request: %v", err),
-		})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-	defer cancel()
-
-	// Verify model exists before switching
-	_, err := as.GetModelConfig(ctx, req.ModelID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": fmt.Sprintf("Model '%s' not found: %v", req.ModelID, err),
-		})
-		return
-	}
-
-	// Perform the switch
-	if err := as.SwitchModel(ctx, req.ModelID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": fmt.Sprintf("Failed to switch model: %v", err),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message":      "Model switched successfully",
-		"active_model": req.ModelID,
-		"note":         "vLLM pod will be recreated with the new model on next request",
-	})
-}
-
 // startIdleChecker starts a background goroutine that checks for idle time
 func (as *AutoScaler) startIdleChecker() {
 	ticker := time.NewTicker(defaultCheckInterval)
@@ -664,19 +619,6 @@ func (as *AutoScaler) Run() error {
 		// GPU stats endpoint
 		gpuStatsHandler := stats.NewGinGPUStatsHandler()
 		proxyGroup.GET("/stats", gpuStatsHandler.Handler)
-
-		// Manual operation endpoints
-		operationHandler := operation.NewGinHandler(as)
-		proxyGroup.POST("/operations/start", operationHandler.StartHandler)
-		proxyGroup.POST("/operations/stop", operationHandler.StopHandler)
-
-		// Model management endpoints
-		modelsGroup := proxyGroup.Group("/models")
-		{
-			modelsGroup.GET("/available", as.availableModelsHandler)
-			modelsGroup.GET("/running", as.runningModelHandler)
-			modelsGroup.POST("/switch", as.switchModelHandler)
-		}
 	}
 
 	// Default proxy handler for all other routes
@@ -795,5 +737,229 @@ func (as *AutoScaler) checkConfigDrift(ctx context.Context) {
 	if !matches {
 		log.Printf("Config drift detected! vLLM pod config doesn't match CRD. Restarting pod...")
 		as.restartVLLMPod()
+	}
+}
+
+// extractModelFromRequest extracts the model parameter from the request body
+func (as *AutoScaler) extractModelFromRequest(r *http.Request) string {
+	// Read the body
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		return ""
+	}
+
+	// Restore the body for subsequent reads
+	r.Body = newBodyReaderFromBytes(bodyBytes)
+
+	// Parse JSON to extract model field
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &reqBody); err != nil {
+		return ""
+	}
+
+	// Extract model field
+	if model, ok := reqBody["model"].(string); ok {
+		return model
+	}
+
+	return ""
+}
+
+// handleModelSwitch checks if the requested model differs from the active model and switches if needed
+func (as *AutoScaler) handleModelSwitch(ctx context.Context, requestedModel string) error {
+	as.mu.RLock()
+	currentModel := as.activeModel
+	as.mu.RUnlock()
+
+	// If the requested model is the same as the active model, no action needed
+	if requestedModel == currentModel {
+		return nil
+	}
+
+	log.Printf("Model switch detected: requested=%s, current=%s", requestedModel, currentModel)
+
+	// Verify the requested model exists in CRDs
+	if _, err := as.crdClient.GetModel(ctx, requestedModel); err != nil {
+		// Model not found - return special error with available models
+		return &ModelNotFoundError{
+			RequestedModel: requestedModel,
+		}
+	}
+
+	// Perform the model switch
+	if err := as.SwitchModel(ctx, requestedModel); err != nil {
+		return fmt.Errorf("failed to switch model: %w", err)
+	}
+
+	log.Printf("Successfully switched to model: %s", requestedModel)
+	return nil
+}
+
+// ModelNotFoundError represents an error when a requested model is not found
+type ModelNotFoundError struct {
+	RequestedModel string
+}
+
+func (e *ModelNotFoundError) Error() string {
+	return fmt.Sprintf("model '%s' not found", e.RequestedModel)
+}
+
+// returnAvailableModels returns available models in OpenAI /v1/models format
+func (as *AutoScaler) returnAvailableModels(ctx context.Context, w http.ResponseWriter, requestedModel string) {
+	// Get all available models from CRDs
+	models, err := as.ListModels(ctx)
+	if err != nil {
+		log.Printf("Failed to list models: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		response := map[string]interface{}{
+			"error": map[string]interface{}{
+				"message": "Failed to retrieve available models",
+				"type":    "internal_error",
+				"code":    "model_list_error",
+			},
+		}
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Build OpenAI-compatible model list response
+	modelList := make([]map[string]interface{}, 0, len(models))
+	for _, model := range models {
+		modelList = append(modelList, map[string]interface{}{
+			"id":       model.Name,
+			"object":   "model",
+			"created":  time.Now().Unix(),
+			"owned_by": "vllm-chill",
+		})
+	}
+
+	// Build error response with available models
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusNotFound)
+	response := map[string]interface{}{
+		"error": map[string]interface{}{
+			"message": fmt.Sprintf("Model '%s' not found. Available models: %v", requestedModel, getModelNames(models)),
+			"type":    "invalid_request_error",
+			"code":    "model_not_found",
+			"param":   "model",
+		},
+		"available_models": map[string]interface{}{
+			"object": "list",
+			"data":   modelList,
+		},
+	}
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Failed to encode response: %v", err)
+	}
+}
+
+// getModelNames extracts model names from ModelInfo slice
+func getModelNames(models []ModelInfo) []string {
+	names := make([]string, 0, len(models))
+	for _, model := range models {
+		names = append(names, model.Name)
+	}
+	return names
+}
+
+// sendLoadingMessage sends a streaming chat completion message indicating model is loading
+func (as *AutoScaler) sendLoadingMessage(w http.ResponseWriter, r *http.Request, modelName string) {
+	// Check if request expects streaming response
+	var reqBody map[string]interface{}
+	if r.Body != nil {
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err == nil {
+			json.Unmarshal(bodyBytes, &reqBody)
+		}
+	}
+
+	stream, _ := reqBody["stream"].(bool)
+
+	if stream {
+		// Send SSE streaming response
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(http.StatusOK)
+
+		flusher, _ := w.(http.Flusher)
+
+		// Send loading message chunk
+		message := fmt.Sprintf("Model '%s' is loading, please wait...", modelName)
+		chunk := map[string]interface{}{
+			"id":      "chatcmpl-loading",
+			"object":  "chat.completion.chunk",
+			"created": time.Now().Unix(),
+			"model":   modelName,
+			"choices": []map[string]interface{}{
+				{
+					"index": 0,
+					"delta": map[string]interface{}{
+						"role":    "assistant",
+						"content": message,
+					},
+					"finish_reason": nil,
+				},
+			},
+		}
+
+		data, _ := json.Marshal(chunk)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		if flusher != nil {
+			flusher.Flush()
+		}
+
+		// Send finish chunk
+		finishChunk := map[string]interface{}{
+			"id":      "chatcmpl-loading",
+			"object":  "chat.completion.chunk",
+			"created": time.Now().Unix(),
+			"model":   modelName,
+			"choices": []map[string]interface{}{
+				{
+					"index":         0,
+					"delta":         map[string]interface{}{},
+					"finish_reason": "stop",
+				},
+			},
+		}
+
+		finishData, _ := json.Marshal(finishChunk)
+		fmt.Fprintf(w, "data: %s\n\n", finishData)
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+	} else {
+		// Send non-streaming response
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+
+		message := fmt.Sprintf("Model '%s' is loading, please wait...", modelName)
+		response := map[string]interface{}{
+			"id":      "chatcmpl-loading",
+			"object":  "chat.completion",
+			"created": time.Now().Unix(),
+			"model":   modelName,
+			"choices": []map[string]interface{}{
+				{
+					"index": 0,
+					"message": map[string]interface{}{
+						"role":    "assistant",
+						"content": message,
+					},
+					"finish_reason": "stop",
+				},
+			},
+			"usage": map[string]interface{}{
+				"prompt_tokens":     0,
+				"completion_tokens": 0,
+				"total_tokens":      0,
+			},
+		}
+
+		json.NewEncoder(w).Encode(response)
 	}
 }
