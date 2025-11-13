@@ -1,0 +1,208 @@
+version: '3'
+
+vars:
+  CLUSTER_NAME: vllm-test
+  K8S_CONTEXT: k3d-vllm-test
+  NAMESPACE: vllm
+
+tasks:
+  # Install k3d if needed
+  install:
+    desc: "Install k3d if not present"
+    internal: true
+    status:
+      - command -v k3d
+    cmds:
+      - echo "Installing k3d..."
+      - curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+
+  # Create k3d cluster
+  create:
+    desc: "Create k3d cluster"
+    internal: true
+    deps: [install]
+    status:
+      - k3d cluster list | grep -q "{{.CLUSTER_NAME}}"
+    cmds:
+      - echo "Creating k3d cluster..."
+      - k3d cluster create {{.CLUSTER_NAME}} --agents 1 --wait --timeout 2m
+      - kubectl cluster-info --context {{.K8S_CONTEXT}}
+      - kubectl get nodes --context {{.K8S_CONTEXT}}
+
+  # Create namespace
+  namespace:
+    desc: "Create vllm namespace (requires k3d cluster)"
+    internal: true
+    cmds:
+      - kubectl create namespace {{.NAMESPACE}} --context {{.K8S_CONTEXT}} --dry-run=client -o yaml | kubectl apply --context {{.K8S_CONTEXT}} -f -
+      - echo "Namespace {{.NAMESPACE}} ready"
+
+  # Install CRD
+  crd:
+    desc: "Install VLLMModel CRD (requires k3d cluster)"
+    internal: true
+    cmds:
+      - kubectl apply --context {{.K8S_CONTEXT}} -f manifests/crds/vllmmodel.yaml
+      - |
+        echo "Waiting for CRD to be established..."
+        for i in {1..30}; do
+          if kubectl --context {{.K8S_CONTEXT}} wait --for condition=established --timeout=2s crd/models.vllm.sir-alfred.io 2>/dev/null; then
+            echo "CRD established successfully"
+            break
+          fi
+          echo "Waiting for CRD... (attempt $i/30)"
+          sleep 2
+        done
+      - kubectl get crd models.vllm.sir-alfred.io --context {{.K8S_CONTEXT}}
+
+  # Create test models
+  models:
+    desc: "Create test VLLMModel resources (requires CRD)"
+    internal: true
+    cmds:
+      - kubectl apply --context {{.K8S_CONTEXT}} -f manifests/examples/qwen3-coder-model.yaml
+      - kubectl apply --context {{.K8S_CONTEXT}} -f manifests/examples/deepseek-r1-model.yaml
+      - sleep 2
+      - kubectl get models --context {{.K8S_CONTEXT}}
+
+  # Setup k3d cluster (orchestrates all subtasks)
+  setup:
+    desc: "Create k3d cluster with CRDs and test models"
+    deps: [create]
+    cmds:
+      - task: namespace
+      - task: crd
+      - task: models
+      - echo "k3d cluster ready for integration tests"
+
+  # Teardown k3d cluster
+  teardown:
+    desc: "Delete k3d cluster"
+    cmds:
+      - k3d cluster delete {{.CLUSTER_NAME}} || true
+      - echo "k3d cluster deleted"
+
+  # Verify VLLMModels
+  verify:models:
+    desc: "Verify VLLMModel resources"
+    internal: true
+    deps: [models]
+    cmds:
+      - kubectl --context {{.K8S_CONTEXT}} get models
+      - kubectl --context {{.K8S_CONTEXT}} get model qwen3-coder-30b-fp8 -o yaml
+
+  # Deploy RBAC
+  deploy:rbac:
+    desc: "Deploy RBAC for testing"
+    internal: true
+    deps: [namespace]
+    cmds:
+      - kubectl --context {{.K8S_CONTEXT}} apply -f manifests/ci/rbac.yaml
+
+  # Verify RBAC permissions
+  verify:rbac:
+    desc: "Verify RBAC permissions"
+    internal: true
+    deps: [deploy:rbac]
+    cmds:
+      - kubectl --context {{.K8S_CONTEXT}} auth can-i get models --as=system:serviceaccount:vllm:vllm-chill
+      - kubectl --context {{.K8S_CONTEXT}} auth can-i list models --as=system:serviceaccount:vllm:vllm-chill
+      - kubectl --context {{.K8S_CONTEXT}} auth can-i get deployments --namespace=vllm --as=system:serviceaccount:vllm:vllm-chill
+      - kubectl --context {{.K8S_CONTEXT}} auth can-i create deployments --namespace=vllm --as=system:serviceaccount:vllm:vllm-chill
+      - kubectl --context {{.K8S_CONTEXT}} auth can-i patch configmaps --namespace=vllm --as=system:serviceaccount:vllm:vllm-chill
+
+  # Validate VLLMModel specs
+  validate:specs:
+    desc: "Validate VLLMModel specs"
+    internal: true
+    deps: [models]
+    cmds:
+      - kubectl --context {{.K8S_CONTEXT}} get model qwen3-coder-30b-fp8 -o jsonpath='{.spec.servedModelName}'
+      - kubectl --context {{.K8S_CONTEXT}} get model deepseek-r1-fp8 -o jsonpath='{.spec.servedModelName}'
+
+  # Test model listing
+  test:listing:
+    desc: "Test model listing"
+    internal: true
+    deps: [models]
+    cmds:
+      - kubectl --context {{.K8S_CONTEXT}} get models -o wide
+      - "kubectl --context {{.K8S_CONTEXT}} get models -o json | jq '.items[] | {name: .metadata.name, servedModelName: .spec.servedModelName, modelName: .spec.modelName}'"
+
+  # Verify CRD schema validation
+  verify:crd:
+    desc: "Verify CRD schema validation"
+    internal: true
+    deps: [crd]
+    cmds:
+      - |
+        if kubectl --context {{.K8S_CONTEXT}} apply -f manifests/test-assets/invalid-model.yaml 2>&1 | grep -qE "(Invalid value|not valid)"; then
+          exit 0
+        else
+          exit 1
+        fi
+
+  # Summary
+  summary:
+    desc: "Show cluster summary"
+    internal: true
+    deps: [setup]
+    cmds:
+      - kubectl --context {{.K8S_CONTEXT}} get models
+      - kubectl --context {{.K8S_CONTEXT}} get all -n vllm
+      - kubectl --context {{.K8S_CONTEXT}} get sa,role,rolebinding -n vllm
+      - kubectl --context {{.K8S_CONTEXT}} get clusterrole,clusterrolebinding | grep vllm-chill
+
+  # Run all k3d tests
+  test:
+    desc: "Run all k3d integration tests and validations"
+    deps: [verify:models, verify:rbac, validate:specs, test:listing, verify:crd]
+    cmds:
+      - task: summary
+
+  # Run Go integration tests
+  "test:go":
+    desc: "Run Go integration tests (requires k3d cluster)"
+    deps: [setup]
+    env:
+      KUBECONFIG: "{{.HOME}}/.kube/config"
+    cmds:
+      - kubectl config use-context {{.K8S_CONTEXT}}
+      - echo "Running integration tests with context {{.K8S_CONTEXT}}..."
+      - go test -v -tags=integration ./pkg/kubernetes -timeout 5m
+      - echo "Integration tests completed"
+
+  # Run Go integration tests with coverage
+  "test:go:coverage":
+    desc: "Run Go integration tests with coverage report"
+    deps: [setup]
+    env:
+      KUBECONFIG: "{{.HOME}}/.kube/config"
+    cmds:
+      - kubectl config use-context {{.K8S_CONTEXT}}
+      - echo "Running integration tests with coverage..."
+      - go test -v -tags=integration ./pkg/kubernetes -coverprofile=integration-coverage.out -timeout 5m
+      - go tool cover -func=integration-coverage.out | tail -1
+      - go tool cover -html=integration-coverage.out -o integration-coverage.html
+      - echo "Coverage report generated at integration-coverage.html"
+
+  # Run all tests with combined coverage
+  "test:coverage":
+    desc: "Run all tests with combined coverage"
+    deps: [setup]
+    env:
+      KUBECONFIG: "{{.HOME}}/.kube/config"
+    cmds:
+      - kubectl config use-context {{.K8S_CONTEXT}}
+      - echo "Running unit tests with coverage..."
+      - go test -v -coverprofile=unit-coverage.out ./...
+      - echo "Running integration tests with coverage..."
+      - go test -v -tags=integration -coverprofile=integration-coverage.out ./pkg/kubernetes -timeout 5m
+      - |
+        echo "Merging coverage reports..."
+        echo "mode: set" > combined-coverage.out
+        tail -n +2 unit-coverage.out >> combined-coverage.out
+        tail -n +2 integration-coverage.out >> combined-coverage.out
+      - go tool cover -func=combined-coverage.out | tail -1
+      - go tool cover -html=combined-coverage.out -o combined-coverage.html
+      - echo "Combined coverage report generated at combined-coverage.html"

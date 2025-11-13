@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"log"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/efortin/vllm-chill/pkg/proxy"
+	"github.com/efortin/vllm-chill/pkg/rbac"
 	"github.com/spf13/cobra"
 )
 
@@ -33,6 +36,17 @@ The proxy will:
 - Track activity and scale to 0 after idle timeout
 - Proxy all requests to the vLLM backend`,
 	RunE: func(_ *cobra.Command, _ []string) error {
+		// Verify RBAC permissions at startup
+		log.Println("Verifying RBAC permissions...")
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := rbac.VerifyPermissions(ctx, namespace); err != nil {
+			log.Printf("RBAC permission check failed: %v", err)
+			return err
+		}
+		log.Println("RBAC permissions verified successfully")
+
 		config := &proxy.Config{
 			Namespace:      namespace,
 			Deployment:     deployment,

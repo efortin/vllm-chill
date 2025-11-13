@@ -1,5 +1,13 @@
 version: '3'
 
+includes:
+  dev:
+    taskfile: ./Taskfile.dev.yml
+    dir: .
+  k3d:
+    taskfile: ./Taskfile.k3d.yml
+    dir: .
+
 vars:
   IMAGE: '{{.IMAGE | default "efortin/vllm-chill"}}'
   TAG: '{{.TAG | default "latest"}}'
@@ -8,197 +16,31 @@ vars:
   NAMESPACE: vllm
 
 tasks:
-  # Task 1: Development
-  dev:
-    desc: "Run tests and build locally"
+  # Main development workflow
+  default:
+    desc: "Run default development workflow (test + build)"
     cmds:
-      - go mod download
-      - go test -v ./...
-      - go build -o bin/vllm-chill ./cmd/autoscaler
-      - echo "Build successful! Binary at bin/vllm-chill"
+      - task: dev:test
+      - task: dev:build
 
-  # Task 2: Test
-  test:
-    desc: "Run all tests with coverage"
-    cmds:
-      - go test -v -race -coverprofile=coverage.out ./...
-      - go tool cover -func=coverage.out
-
-  # Task 3: Lint
-  lint:
-    desc: "Run golangci-lint"
-    cmds:
-      - golangci-lint run ./...
-
-  # Task 4: Lint with auto-fix
-  "lint:fix":
-    desc: "Run golangci-lint with auto-fix"
-    cmds:
-      - golangci-lint run --fix ./...
-
-  # Task 5: Build & Push Docker image
-  docker:
-    desc: "Build and push multi-arch Docker image"
-    cmds:
-      - "docker buildx build --platform linux/amd64,linux/arm64 -t {{.IMAGE}}:{{.TAG}} --push ."
-      - 'echo "image pushed: {{.IMAGE}}:{{.TAG}}"'
-
-  # Task 5a: Build & Push Docker :dev image
-  "docker:dev":
-    desc: "Build and push Docker image with :dev tag"
-    cmds:
-      - "docker buildx build --platform linux/amd64 -t {{.IMAGE}}:dev --push ."
-      - 'echo "image pushed: {{.IMAGE}}:dev"'
-
-  # Task 6: Build
-  build:
-    desc: "Build binary"
-    cmds:
-      - go build -o bin/vllm-chill ./cmd/autoscaler
-      - echo "Build successful! Binary at bin/vllm-chill"
-
-  # Task 7: Local run
-  run:
-    desc: "Run locally (requires kubeconfig)"
-    cmds:
-      - go run ./cmd/autoscaler serve
-
-  # Task 8: Full check (lint + test + build)
-  check:
-    desc: "Run full checks (lint, test, build)"
-    cmds:
-      - task: lint
-      - task: test
-      - task: build
-      - echo "All checks passed!"
-
-  # Task 9: Install k3d if needed
-  "k3d:install":
-    desc: "Install k3d if not present"
-    internal: true
-    status:
-      - command -v k3d
-    cmds:
-      - echo "Installing k3d..."
-      - curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
-
-  # Task 10: Create k3d cluster
-  "k3d:create":
-    desc: "Create k3d cluster"
-    internal: true
-    deps: [k3d:install]
-    status:
-      - k3d cluster list | grep -q "{{.CLUSTER_NAME}}"
-    cmds:
-      - echo "Creating k3d cluster..."
-      - k3d cluster create {{.CLUSTER_NAME}} --agents 1 --wait --timeout 2m
-      - kubectl cluster-info --context {{.K8S_CONTEXT}}
-      - kubectl get nodes --context {{.K8S_CONTEXT}}
-
-  # Task 11: Create namespace
-  "k3d:namespace":
-    desc: "Create vllm namespace"
-    internal: true
-    cmds:
-      - kubectl create namespace {{.NAMESPACE}} --context {{.K8S_CONTEXT}} --dry-run=client -o yaml | kubectl apply --context {{.K8S_CONTEXT}} -f -
-      - echo "Namespace {{.NAMESPACE}} ready"
-
-  # Task 12: Install CRD
-  "k3d:crd":
-    desc: "Install VLLMModel CRD"
-    internal: true
-    cmds:
-      - kubectl apply --context {{.K8S_CONTEXT}} -f manifests/crds/vllmmodel.yaml
-      - |
-        echo "Waiting for CRD to be established..."
-        for i in {1..30}; do
-          if kubectl --context {{.K8S_CONTEXT}} wait --for condition=established --timeout=2s crd/models.vllm.sir-alfred.io 2>/dev/null; then
-            echo "CRD established successfully"
-            break
-          fi
-          echo "Waiting for CRD... (attempt $i/30)"
-          sleep 2
-        done
-      - kubectl get crd models.vllm.sir-alfred.io --context {{.K8S_CONTEXT}}
-
-  # Task 13: Create test models
-  "k3d:models":
-    desc: "Create test VLLMModel resources"
-    internal: true
-    cmds:
-      - kubectl apply --context {{.K8S_CONTEXT}} -f manifests/examples/qwen3-coder-model.yaml
-      - kubectl apply --context {{.K8S_CONTEXT}} -f manifests/examples/deepseek-r1-model.yaml
-      - sleep 2
-      - kubectl get models --context {{.K8S_CONTEXT}}
-
-  # Task 14: Setup k3d cluster (orchestrates all subtasks)
-  "k3d:setup":
-    desc: "Create k3d cluster with CRDs and test models"
-    cmds:
-      - task: k3d:create
-      - task: k3d:namespace
-      - task: k3d:crd
-      - task: k3d:models
-      - echo "k3d cluster ready for integration tests"
-
-  # Task 15: Teardown k3d cluster
-  "k3d:teardown":
-    desc: "Delete k3d cluster"
-    cmds:
-      - k3d cluster delete {{.CLUSTER_NAME}} || true
-      - echo "k3d cluster deleted"
-
-  # Task 16: Run integration tests
-  "test:integration":
-    desc: "Run integration tests (requires k3d cluster)"
-    deps: [k3d:setup]
-    env:
-      KUBECONFIG: "{{.HOME}}/.kube/config"
-    cmds:
-      - kubectl config use-context {{.K8S_CONTEXT}}
-      - echo "Running integration tests with context {{.K8S_CONTEXT}}..."
-      - go test -v -tags=integration ./pkg/kubernetes -timeout 5m
-      - echo "Integration tests completed"
-
-  # Task 17: Integration tests with coverage
-  "test:integration:coverage":
-    desc: "Run integration tests with coverage report"
-    deps: [k3d:setup]
-    env:
-      KUBECONFIG: "{{.HOME}}/.kube/config"
-    cmds:
-      - kubectl config use-context {{.K8S_CONTEXT}}
-      - echo "Running integration tests with coverage..."
-      - go test -v -tags=integration ./pkg/kubernetes -coverprofile=integration-coverage.out -timeout 5m
-      - go tool cover -func=integration-coverage.out | tail -1
-      - go tool cover -html=integration-coverage.out -o integration-coverage.html
-      - echo "Coverage report generated at integration-coverage.html"
-
-  # Task 18: Run all tests (unit + integration)
+  # Run all tests (unit + integration)
   "test:all":
     desc: "Run all tests (unit + integration)"
     cmds:
-      - task: test
-      - task: test:integration
-      - echo "All tests passed"
+      - task: dev:test
+      - task: k3d:test:go
+      - echo "All tests passed!"
 
-  # Task 19: Combined coverage (unit + integration)
-  "test:coverage:all":
-    desc: "Run all tests with combined coverage"
-    deps: [k3d:setup]
-    env:
-      KUBECONFIG: "{{.HOME}}/.kube/config"
+  # Full CI check (lint + test + build)
+  ci:
+    desc: "Run full CI checks (lint + test + build)"
     cmds:
-      - kubectl config use-context {{.K8S_CONTEXT}}
-      - echo "Running unit tests with coverage..."
-      - go test -v -coverprofile=unit-coverage.out ./...
-      - echo "Running integration tests with coverage..."
-      - go test -v -tags=integration -coverprofile=integration-coverage.out ./pkg/kubernetes -timeout 5m
-      - |
-        echo "Merging coverage reports..."
-        echo "mode: set" > combined-coverage.out
-        tail -n +2 unit-coverage.out >> combined-coverage.out
-        tail -n +2 integration-coverage.out >> combined-coverage.out
-      - go tool cover -func=combined-coverage.out | tail -1
-      - go tool cover -html=combined-coverage.out -o combined-coverage.html
-      - echo "Combined coverage report generated at combined-coverage.html"
+      - task: dev:check
+
+  # Release workflow (check + docker build)
+  release:
+    desc: "Run release workflow (check + docker build)"
+    cmds:
+      - task: dev:check
+      - task: dev:docker:build
+      - echo "Release complete!"
