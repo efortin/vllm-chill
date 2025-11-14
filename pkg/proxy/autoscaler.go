@@ -33,6 +33,11 @@ const (
 	configDriftCheckInterval = 30 * time.Second // Check for config drift every 30s
 )
 
+// contextKey is a custom type for context keys to avoid collisions
+type contextKey string
+
+const anthropicRequestKey contextKey = "anthropic-request"
+
 // AutoScaler manages automatic scaling of vLLM deployments
 type AutoScaler struct {
 	clientset    *k8sclient.Clientset
@@ -332,7 +337,7 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 		// Extract model from request body if this is a /v1/* endpoint
 		// Skip model extraction for Anthropic requests (already handled in handleAnthropicFormatRequest)
 		if len(r.URL.Path) >= 3 && r.URL.Path[:3] == "/v1" {
-			if r.Context().Value("anthropic-request") != true {
+			if r.Context().Value(anthropicRequestKey) != true {
 				requestedModel = as.extractModelFromRequest(r)
 			} else {
 				log.Printf("[DEBUG] Skipping model extraction for Anthropic request (already transformed)")
@@ -550,7 +555,7 @@ func (as *AutoScaler) handleAnthropicFormatRequest(c *gin.Context) {
 	newReq.ContentLength = int64(len(openAIBytes))
 
 	// Add marker to skip model switch check in proxyHandler
-	ctx := context.WithValue(newReq.Context(), "anthropic-request", true)
+	ctx := context.WithValue(newReq.Context(), anthropicRequestKey, true)
 	newReq = newReq.WithContext(ctx)
 
 	// Transform Anthropic auth header to OpenAI format
@@ -660,7 +665,6 @@ func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Requ
 		index           int // OpenAI tool call index (0, 1, 2...)
 		contentBlockIdx int // Anthropic content block index (1, 2, 3... since 0 is text)
 		started         bool
-		finished        bool
 	}
 	toolCallStates := make(map[int]*toolCallState)
 	hasToolCalls := false
@@ -1602,9 +1606,7 @@ func transformAnthropicToOpenAI(anthropicBody map[string]interface{}) map[string
 							openAIMessages = append(openAIMessages, openAIMsg)
 						}
 						// Add tool result messages
-						for _, toolResult := range toolResults {
-							openAIMessages = append(openAIMessages, toolResult)
-						}
+						openAIMessages = append(openAIMessages, toolResults...)
 						// Skip the normal append below
 						continue
 					} else {

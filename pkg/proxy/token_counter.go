@@ -65,9 +65,8 @@ func EstimateMessagesTokens(messages []map[string]interface{}) int {
 
 // TokenTracker tracks tokens during streaming
 type TokenTracker struct {
-	inputTokens  int
-	outputTokens int
-	outputText   strings.Builder
+	inputTokens int
+	outputText  strings.Builder
 }
 
 // NewTokenTracker creates a new token tracker
