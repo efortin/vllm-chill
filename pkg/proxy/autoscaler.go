@@ -573,6 +573,28 @@ func (as *AutoScaler) handleAnthropicFormatRequest(c *gin.Context) {
 		recorder := httptest.NewRecorder()
 		as.proxyHandler(recorder, newReq)
 
+		// Handle error responses from vLLM
+		if recorder.Code >= 400 {
+			log.Printf("[ERROR] vLLM returned error status: %d", recorder.Code)
+			// Try to parse error response
+			var errorJSON map[string]interface{}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &errorJSON); err == nil {
+				// Return vLLM error in Anthropic format
+				c.JSON(recorder.Code, gin.H{
+					"type":  "error",
+					"error": errorJSON,
+				})
+			} else {
+				// Return raw error
+				c.JSON(recorder.Code, gin.H{
+					"type":    "error",
+					"error":   recorder.Body.String(),
+					"message": recorder.Body.String(),
+				})
+			}
+			return
+		}
+
 		// Transform OpenAI response to Anthropic format
 		anthropicResp, err := transformOpenAIResponseToAnthropic(recorder.Body.Bytes())
 		if err != nil {
@@ -640,6 +662,36 @@ func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Requ
 	}()
 
 	log.Printf("[DEBUG] Received response from vLLM, status=%d, content-type=%s", resp.StatusCode, resp.Header.Get("Content-Type"))
+
+	// Handle error responses from vLLM
+	if resp.StatusCode >= 400 {
+		log.Printf("[ERROR] vLLM returned error status: %d", resp.StatusCode)
+		// Read error body
+		errorBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Printf("[ERROR] Failed to read error response: %v", err)
+			c.JSON(resp.StatusCode, gin.H{"error": "vLLM error", "details": fmt.Sprintf("Status %d", resp.StatusCode)})
+			return
+		}
+
+		// Try to parse as JSON error
+		var errorJSON map[string]interface{}
+		if err := json.Unmarshal(errorBody, &errorJSON); err == nil {
+			// Return vLLM error in Anthropic format
+			c.JSON(resp.StatusCode, gin.H{
+				"type":  "error",
+				"error": errorJSON,
+			})
+		} else {
+			// Return raw error
+			c.JSON(resp.StatusCode, gin.H{
+				"type":    "error",
+				"error":   string(errorBody),
+				"message": string(errorBody),
+			})
+		}
+		return
+	}
 
 	// Set SSE headers
 	c.Header("Content-Type", "text/event-stream")
