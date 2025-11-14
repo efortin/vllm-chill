@@ -459,7 +459,7 @@ func BenchmarkDeduplication(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		rw.Write(sseData)
+		_, _ = rw.Write(sseData)
 	}
 }
 
