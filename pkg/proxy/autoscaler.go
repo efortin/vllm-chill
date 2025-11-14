@@ -341,7 +341,7 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Wrap response writer to capture status and size
-	rw := newResponseWriter(w, as.config.LogOutput, as.metrics)
+	rw := newResponseWriter(w, as.config.LogOutput, as.metrics, as.config.EnableXMLParsing)
 	defer func() {
 		duration := time.Since(start)
 		if as.metrics != nil {
@@ -562,7 +562,7 @@ func (as *AutoScaler) handleAnthropicFormatRequest(c *gin.Context) {
 
 	if stream {
 		// For streaming: proxy directly without buffering to maintain real-time streaming
-		as.streamAnthropicResponse(c, newReq)
+		as.streamAnthropicResponse(c, newReq, openAIBody["messages"].([]map[string]interface{}))
 	} else {
 		// For non-streaming: buffer and transform
 		recorder := httptest.NewRecorder()
@@ -592,7 +592,7 @@ func (as *AutoScaler) handleAnthropicFormatRequest(c *gin.Context) {
 }
 
 // streamAnthropicResponse proxies streaming requests in real-time without buffering
-func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Request) {
+func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Request, requestMessages []map[string]interface{}) {
 	log.Printf("[DEBUG] Starting Anthropic streaming response")
 
 	// Make direct HTTP request to vLLM target
@@ -649,6 +649,23 @@ func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Requ
 	messageStartSent := false
 	contentBlockStopSent := false
 	flusher, _ := c.Writer.(http.Flusher)
+	chunkCount := 0
+	const usageUpdateInterval = 10 // Send usage update every N chunks
+
+	// Track tokens for accurate counting using tiktoken
+	// Extract model from first chunk or use default
+	model := "qwen3-coder-30b"
+	tokenTracker := NewTiktokenTracker(model)
+
+	// Count input tokens from the original request messages
+	if len(requestMessages) > 0 {
+		tokenTracker.SetInputTokens(requestMessages)
+		log.Printf("[DEBUG] Input tokens counted: %d messages", len(requestMessages))
+	} else {
+		// Default if we couldn't parse messages
+		tokenTracker.SetInputTokensCount(10)
+		log.Printf("[DEBUG] Using default input tokens: 10")
+	}
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -659,10 +676,46 @@ func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Requ
 
 		data := strings.TrimPrefix(line, "data: ")
 		if data == "[DONE]" {
-			// Send message_stop event
-			if _, err := fmt.Fprintf(c.Writer, "event: message_stop\ndata: {}\n\n"); err != nil {
-				log.Printf("Error writing message_stop event: %v", err)
+			// Build all final events to send in one go
+			var finalEvents strings.Builder
+
+			// 1. Send content_block_stop if not already sent
+			if !contentBlockStopSent {
+				contentBlockStop := map[string]interface{}{
+					"type":  "content_block_stop",
+					"index": 0,
+				}
+				cbstopJSON, _ := json.Marshal(contentBlockStop)
+				finalEvents.WriteString(fmt.Sprintf("event: content_block_stop\ndata: %s\n\n", cbstopJSON))
 			}
+
+			// 2. Always send message_delta with usage
+			usageData := tokenTracker.GetUsage()
+			log.Printf("[DEBUG] Final usage at [DONE]: input=%v, output=%v", usageData["input_tokens"], usageData["output_tokens"])
+
+			messageDelta := map[string]interface{}{
+				"type": "message_delta",
+				"delta": map[string]interface{}{
+					"stop_reason": "end_turn",
+				},
+				"usage": map[string]interface{}{
+					"input_tokens":  usageData["input_tokens"],
+					"output_tokens": usageData["output_tokens"],
+				},
+			}
+			deltaJSON, _ := json.Marshal(messageDelta)
+			log.Printf("[DEBUG] Sending message_delta: %s", deltaJSON)
+			finalEvents.WriteString(fmt.Sprintf("event: message_delta\ndata: %s\n\n", deltaJSON))
+
+			// 3. Send message_stop
+			finalEvents.WriteString("event: message_stop\ndata: {}\n\n")
+
+			// Write all events at once
+			finalStr := finalEvents.String()
+			if _, err := c.Writer.Write([]byte(finalStr)); err != nil {
+				log.Printf("Error writing final events: %v", err)
+			}
+
 			if flusher != nil {
 				flusher.Flush()
 			}
@@ -716,6 +769,10 @@ func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Requ
 			if choice, ok := choices[0].(map[string]interface{}); ok {
 				if delta, ok := choice["delta"].(map[string]interface{}); ok {
 					if content, ok := delta["content"].(string); ok && content != "" {
+						// Track output text for token counting
+						tokenTracker.AddOutputText(content)
+						chunkCount++
+
 						deltaEvent := map[string]interface{}{
 							"type":  "content_block_delta",
 							"index": 0,
@@ -729,6 +786,25 @@ func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Requ
 							log.Printf("Error writing content_block_delta event: %v", err)
 						}
 
+						// Send periodic usage updates (cumulative)
+						// NOTE: Claude Code counts tokens client-side and ignores server values
+						// We still send them for API compliance and potential future use
+						if chunkCount%usageUpdateInterval == 0 {
+							usageData := tokenTracker.GetUsage()
+							messageDeltaUsage := map[string]interface{}{
+								"type": "message_delta",
+								"usage": map[string]interface{}{
+									"input_tokens":  usageData["input_tokens"],
+									"output_tokens": usageData["output_tokens"],
+								},
+							}
+							usageJSON, _ := json.Marshal(messageDeltaUsage)
+							if _, err := fmt.Fprintf(c.Writer, "event: message_delta\ndata: %s\n\n", usageJSON); err != nil {
+								log.Printf("Error writing periodic message_delta: %v", err)
+							}
+							log.Printf("[DEBUG] Sent periodic usage update: input=%v, output=%v", usageData["input_tokens"], usageData["output_tokens"])
+						}
+
 						if flusher != nil {
 							flusher.Flush()
 						}
@@ -737,7 +813,7 @@ func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Requ
 
 				// Check for finish
 				if finishReason, ok := choice["finish_reason"].(string); ok && finishReason != "" && !contentBlockStopSent {
-					// Send content_block_stop
+					// First send content_block_stop
 					contentBlockStop := map[string]interface{}{
 						"type":  "content_block_stop",
 						"index": 0,
@@ -748,9 +824,14 @@ func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Requ
 					}
 					contentBlockStopSent = true
 
+					// Flush immediately after content_block_stop
 					if flusher != nil {
 						flusher.Flush()
 					}
+
+					// Don't send message_delta here - it will be sent when we receive [DONE]
+					// Store the finish reason for later
+					// This mimics what claude-code-router does - all at the end
 				}
 			}
 		}
@@ -772,6 +853,25 @@ func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Requ
 			cbstopJSON, _ := json.Marshal(contentBlockStop)
 			if _, err := fmt.Fprintf(c.Writer, "event: content_block_stop\ndata: %s\n\n", cbstopJSON); err != nil {
 				log.Printf("Error writing final content_block_stop event: %v", err)
+			}
+
+			// Always send message_delta with usage before message_stop
+			usageData := tokenTracker.GetUsage()
+			log.Printf("[DEBUG] Final usage: input=%v, output=%v", usageData["input_tokens"], usageData["output_tokens"])
+
+			messageDelta := map[string]interface{}{
+				"type": "message_delta",
+				"delta": map[string]interface{}{
+					"stop_reason": "end_turn",
+				},
+				"usage": map[string]interface{}{
+					"input_tokens":  usageData["input_tokens"],
+					"output_tokens": usageData["output_tokens"],
+				},
+			}
+			deltaJSON, _ := json.Marshal(messageDelta)
+			if _, err := fmt.Fprintf(c.Writer, "event: message_delta\ndata: %s\n\n", deltaJSON); err != nil {
+				log.Printf("Error writing final message_delta with usage: %v", err)
 			}
 		}
 
