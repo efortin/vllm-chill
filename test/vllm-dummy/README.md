@@ -22,7 +22,7 @@ A lightweight HTTP server that simulates the vLLM API for integration testing wi
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MODEL_NAME` | `test/model` | The underlying model name |
+| `MODEL_NAME` | `test-model` | The underlying model name |
 | `SERVED_MODEL_NAME` | `test-model` | The served model name |
 | `PORT` | `8000` | Server port |
 
