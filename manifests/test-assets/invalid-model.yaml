@@ -1,0 +1,9 @@
+apiVersion: vllm.sir-alfred.io/v1alpha1
+kind: VLLMModel
+metadata:
+  name: invalid-model
+spec:
+  modelName: "test/model"
+  servedModelName: "invalid"
+  dtype: "invalid-dtype"
+  gpuMemoryUtilization: 1.5

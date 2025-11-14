@@ -17,189 +17,28 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+        cache: true
+
+    - name: Install Task
+      run: sudo snap install task --classic
+
     - name: Install k3d
       run: |
         curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
 
-    - name: Create k3d cluster
-      run: |
-        k3d cluster create vllm-test \
-          --agents 1 \
-          --wait \
-          --timeout 2m
+    - name: Setup k3d cluster
+      run: task k3d:setup
 
-    - name: Verify cluster
-      run: |
-        kubectl cluster-info
-        kubectl get nodes
+    - name: Run integration tests
+      run: task k3d:test:go
 
-    - name: Create namespace
-      run: |
-        kubectl create namespace vllm
-
-    - name: Install VLLMModel CRD
-      run: |
-        kubectl apply -f manifests/crds/vllmmodel.yaml
-        # Wait for CRD to be ready with retry logic
-        for i in {1..30}; do
-          if kubectl wait --for condition=established --timeout=2s crd/models.vllm.sir-alfred.io 2>/dev/null; then
-            echo "CRD established successfully"
-            break
-          fi
-          echo "Waiting for CRD to be established (attempt $i/30)..."
-          sleep 2
-        done
-        # Final check
-        kubectl get crd models.vllm.sir-alfred.io
-
-    - name: Create test VLLMModel
-      run: |
-        kubectl apply -f manifests/examples/qwen3-coder-model.yaml
-        kubectl apply -f manifests/examples/deepseek-r1-model.yaml
-        kubectl apply -f manifests/examples/opencoder-model.yaml
-
-    - name: Verify VLLMModels
-      run: |
-        kubectl get models
-        kubectl get model qwen3-coder-30b-fp8 -o yaml
-
-    - name: Deploy RBAC only
-      run: |
-        # Create minimal RBAC for testing (no actual deployment)
-        cat > test-rbac.yaml << 'EOF'
-        apiVersion: v1
-        kind: ServiceAccount
-        metadata:
-          name: vllm-chill
-          namespace: vllm
-        ---
-        apiVersion: rbac.authorization.k8s.io/v1
-        kind: Role
-        metadata:
-          name: vllm-chill
-          namespace: vllm
-        rules:
-        - apiGroups: ["apps"]
-          resources: ["deployments"]
-          verbs: ["get", "list", "create", "update", "patch"]
-        - apiGroups: [""]
-          resources: ["pods"]
-          verbs: ["list", "delete", "deletecollection"]
-        - apiGroups: [""]
-          resources: ["configmaps"]
-          verbs: ["get", "create", "update", "patch"]
-        - apiGroups: [""]
-          resources: ["services"]
-          verbs: ["get", "create", "update", "patch"]
-        ---
-        apiVersion: rbac.authorization.k8s.io/v1
-        kind: ClusterRole
-        metadata:
-          name: vllm-chill-models
-        rules:
-        - apiGroups: ["vllm.sir-alfred.io"]
-          resources: ["models"]
-          verbs: ["get", "list"]
-        ---
-        apiVersion: rbac.authorization.k8s.io/v1
-        kind: ClusterRoleBinding
-        metadata:
-          name: vllm-chill-models
-        subjects:
-        - kind: ServiceAccount
-          name: vllm-chill
-          namespace: vllm
-        roleRef:
-          kind: ClusterRole
-          name: vllm-chill-models
-          apiGroup: rbac.authorization.k8s.io
-        ---
-        apiVersion: rbac.authorization.k8s.io/v1
-        kind: RoleBinding
-        metadata:
-          name: vllm-chill
-          namespace: vllm
-        subjects:
-        - kind: ServiceAccount
-          name: vllm-chill
-          namespace: vllm
-        roleRef:
-          kind: Role
-          name: vllm-chill
-          apiGroup: rbac.authorization.k8s.io
-        EOF
-        kubectl apply -f test-rbac.yaml
-
-    - name: Verify RBAC permissions
-      run: |
-        echo "Testing cluster-scoped permissions (VLLMModels)..."
-        kubectl auth can-i get models --as=system:serviceaccount:vllm:vllm-chill
-        kubectl auth can-i list models --as=system:serviceaccount:vllm:vllm-chill
-        
-        echo "Testing namespace-scoped permissions..."
-        kubectl auth can-i get deployments --namespace=vllm --as=system:serviceaccount:vllm:vllm-chill
-        kubectl auth can-i create deployments --namespace=vllm --as=system:serviceaccount:vllm:vllm-chill
-        kubectl auth can-i patch configmaps --namespace=vllm --as=system:serviceaccount:vllm:vllm-chill
-
-    - name: Validate VLLMModel specs
-      run: |
-        echo "Validating qwen3-coder model..."
-        kubectl get model qwen3-coder-30b-fp8 -o jsonpath='{.spec.servedModelName}'
-        echo ""
-        
-        echo "Validating deepseek-r1 model..."
-        kubectl get model deepseek-r1-fp8 -o jsonpath='{.spec.servedModelName}'
-        echo ""
-        
-        echo "Validating opencoder model..."
-        kubectl get model opencoder-30b-fp8 -o jsonpath='{.spec.servedModelName}'
-        echo ""
-
-    - name: Test model listing
-      run: |
-        echo "All models:"
-        kubectl get models -o wide
-        
-        echo ""
-        echo "Model details (JSON):"
-        kubectl get models -o json | jq '.items[] | {name: .metadata.name, servedModelName: .spec.servedModelName, modelName: .spec.modelName}'
-
-    - name: Verify CRD schema validation
-      run: |
-        echo "Testing invalid model (should fail)..."
-        cat > invalid-model.yaml << 'EOF'
-        apiVersion: vllm.sir-alfred.io/v1alpha1
-        kind: VLLMModel
-        metadata:
-          name: invalid-model
-        spec:
-          modelName: "test/model"
-          servedModelName: "invalid"
-          dtype: "invalid-dtype"  # Should fail validation (not in enum)
-          gpuMemoryUtilization: 1.5  # Should fail (maximum 1.0)
-        EOF
-
-        if kubectl apply -f invalid-model.yaml 2>&1 | grep -qE "(Invalid value|not valid)"; then
-          echo "✅ CRD validation working correctly"
-        else
-          echo "❌ CRD validation not working"
-          exit 1
-        fi
-
-    - name: Summary
-      if: always()
-      run: |
-        echo "=== Cluster Resources ==="
-        kubectl get models
-        echo ""
-        echo "=== Namespace Resources ==="
-        kubectl get all -n vllm
-        echo ""
-        echo "=== RBAC ==="
-        kubectl get sa,role,rolebinding -n vllm
-        kubectl get clusterrole,clusterrolebinding | grep vllm-chill
+    - name: Run k3d validations
+      run: task k3d:test
 
     - name: Cleanup
       if: always()
-      run: |
-        k3d cluster delete vllm-test
+      run: task k3d:teardown

@@ -3,7 +3,9 @@ package proxy
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -28,16 +30,23 @@ type responseWriter struct {
 	chunkBuffer        []map[string]interface{} // Store parsed chunks for template
 	toolCallsDetected  bool                     // Whether native tool calls were detected
 	metrics            *stats.MetricsRecorder   // Metrics recorder for tracking operations
+	// Deduplication fields for native tool calls (vLLM tensor parallelism workaround)
+	seenChunks       map[string]bool // Track seen SSE chunks by hash
+	lastToolCallArgs map[int]string  // Track last arguments per tool call index
+	toolCallIDs      map[string]bool // Track which tool call IDs we've sent start events for
 }
 
 // newResponseWriter creates a new response writer wrapper
 func newResponseWriter(w http.ResponseWriter, captureBody bool, metrics *stats.MetricsRecorder) *responseWriter {
 	rw := &responseWriter{
-		ResponseWriter: w,
-		statusCode:     http.StatusOK,
-		captureBody:    captureBody,
-		sseBuffer:      &bytes.Buffer{},
-		metrics:        metrics,
+		ResponseWriter:   w,
+		statusCode:       http.StatusOK,
+		captureBody:      captureBody,
+		sseBuffer:        &bytes.Buffer{},
+		metrics:          metrics,
+		seenChunks:       make(map[string]bool),
+		lastToolCallArgs: make(map[int]string),
+		toolCallIDs:      make(map[string]bool),
 	}
 	if captureBody {
 		rw.body = &bytes.Buffer{}
@@ -226,8 +235,27 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 		return len(b), nil
 	}
 
-	// If NOT in XML mode, pass through immediately
+	// If NOT in XML mode, pass through (with deduplication if tool calls detected)
 	if !rw.xmlDetectionMode {
+		// If native tool calls detected, deduplicate chunks from vLLM tensor parallelism
+		if rw.toolCallsDetected {
+			dedupedData, bytesFiltered := rw.deduplicateToolCallChunks(b)
+			if bytesFiltered > 0 {
+				log.Printf("[DEDUP] Filtered %d duplicate bytes from vLLM tensor parallelism", bytesFiltered)
+			}
+			if len(dedupedData) == 0 {
+				// All chunks were duplicates
+				return len(b), nil
+			}
+			n, err := rw.ResponseWriter.Write(dedupedData)
+			rw.bytesWritten += int64(n)
+			if rw.captureBody {
+				rw.body.Write(dedupedData)
+			}
+			return len(b), err
+		}
+
+		// Normal pass-through (no tool calls)
 		n, err := rw.ResponseWriter.Write(b)
 		rw.bytesWritten += int64(n)
 		if rw.captureBody {
@@ -239,6 +267,117 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	// XML mode active, buffering until [DONE]
 	log.Printf("[XML-PARSER] Buffering chunks... (elapsed: %v)", time.Since(rw.xmlDetectionStart))
 	return len(b), nil
+}
+
+// deduplicateToolCallChunks removes duplicate SSE chunks from vLLM tensor parallelism
+// Returns deduplicated data and number of bytes filtered
+func (rw *responseWriter) deduplicateToolCallChunks(b []byte) ([]byte, int) {
+	lines := strings.Split(string(b), "\n")
+	var output bytes.Buffer
+	originalSize := len(b)
+
+	for _, line := range lines {
+		// Pass through non-data lines
+		if !strings.HasPrefix(line, "data: ") {
+			if line != "" || output.Len() > 0 {
+				output.WriteString(line)
+				output.WriteString("\n")
+			}
+			continue
+		}
+
+		jsonData := strings.TrimPrefix(line, "data: ")
+
+		// Pass through [DONE] marker
+		if jsonData == "[DONE]" {
+			output.WriteString(line)
+			output.WriteString("\n")
+			continue
+		}
+
+		// Hash the entire chunk for exact duplicate detection
+		hash := fmt.Sprintf("%x", sha256.Sum256([]byte(jsonData)))
+		if rw.seenChunks[hash] {
+			// Skip duplicate chunk
+			continue
+		}
+		rw.seenChunks[hash] = true
+
+		// Parse chunk for tool call deduplication
+		var chunk map[string]interface{}
+		if err := json.Unmarshal([]byte(jsonData), &chunk); err != nil {
+			// Can't parse, pass through
+			output.WriteString(line)
+			output.WriteString("\n")
+			continue
+		}
+
+		// Check for tool calls in delta
+		if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
+			if choice, ok := choices[0].(map[string]interface{}); ok {
+				if delta, ok := choice["delta"].(map[string]interface{}); ok {
+					if toolCalls, ok := delta["tool_calls"].([]interface{}); ok && len(toolCalls) > 0 {
+						// Process each tool call for argument deduplication
+						shouldSkip := false
+						for _, tc := range toolCalls {
+							if toolCall, ok := tc.(map[string]interface{}); ok {
+								idx := 0
+								if index, ok := toolCall["index"].(float64); ok {
+									idx = int(index)
+								}
+
+								// Check for tool call ID (used for content_block_start dedup)
+								toolID := ""
+								if id, ok := toolCall["id"].(string); ok && id != "" {
+									toolID = id
+								}
+
+								// Get function arguments if present
+								args := ""
+								if fn, ok := toolCall["function"].(map[string]interface{}); ok {
+									if arguments, ok := fn["arguments"].(string); ok {
+										args = arguments
+									}
+								}
+
+								// Skip if we've seen this exact tool ID start event
+								if toolID != "" && args == "" {
+									// This is a tool_call start (has ID but no args yet)
+									if rw.toolCallIDs[toolID] {
+										shouldSkip = true
+										break
+									}
+									rw.toolCallIDs[toolID] = true
+								}
+
+								// Skip if same arguments as last time for this index
+								if args != "" && rw.lastToolCallArgs[idx] == args {
+									shouldSkip = true
+									break
+								}
+								if args != "" {
+									rw.lastToolCallArgs[idx] = args
+								}
+							}
+						}
+
+						if shouldSkip {
+							// Skip this chunk
+							continue
+						}
+					}
+				}
+			}
+		}
+
+		// Write non-duplicate chunk
+		output.WriteString(line)
+		output.WriteString("\n")
+	}
+
+	deduped := output.Bytes()
+	bytesFiltered := originalSize - len(deduped)
+	return deduped, bytesFiltered
 }
 
 // buildSingleToolCallChunk builds a single SSE chunk with the complete tool call
@@ -342,4 +481,12 @@ func (br *bodyReader) Read(p []byte) (int, error) {
 // BytesRead returns the total number of bytes read
 func (br *bodyReader) BytesRead() int64 {
 	return br.bytesRead
+}
+
+// newBodyReaderFromBytes creates a new body reader from a byte slice
+func newBodyReaderFromBytes(data []byte) *bodyReader {
+	return &bodyReader{
+		ReadCloser: io.NopCloser(bytes.NewReader(data)),
+		bytesRead:  0,
+	}
 }

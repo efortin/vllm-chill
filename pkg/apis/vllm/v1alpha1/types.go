@@ -26,10 +26,8 @@ type VLLMModelSpec struct {
 	ToolCallParser  string `json:"toolCallParser,omitempty"`
 	ReasoningParser string `json:"reasoningParser,omitempty"`
 
-	// GPU Configuration
-	GPUCount int `json:"gpuCount,omitempty"`
-
-	// vLLM Runtime Parameters
+	// vLLM Runtime Parameters (model-specific)
+	// Note: gpuCount and cpuOffloadGB are infrastructure-level, configured in vllm-chill
 	MaxModelLen            int     `json:"maxModelLen,omitempty"`
 	GPUMemoryUtilization   float64 `json:"gpuMemoryUtilization,omitempty"`
 	EnableChunkedPrefill   *bool   `json:"enableChunkedPrefill,omitempty"`
@@ -38,7 +36,6 @@ type VLLMModelSpec struct {
 	Dtype                  string  `json:"dtype,omitempty"`
 	DisableCustomAllReduce *bool   `json:"disableCustomAllReduce,omitempty"`
 	EnablePrefixCaching    *bool   `json:"enablePrefixCaching,omitempty"`
-	CPUOffloadGB           int     `json:"cpuOffloadGB,omitempty"`
 	EnableAutoToolChoice   *bool   `json:"enableAutoToolChoice,omitempty"`
 }
 

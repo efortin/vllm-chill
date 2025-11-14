@@ -15,11 +15,7 @@ type ModelConfig struct {
 	ToolCallParser  string
 	ReasoningParser string
 
-	// GPU configuration
-	GPUCount string // Number of GPUs to use (affects tensor-parallel-size and resource limits)
-
-	// vLLM runtime parameters
-	TensorParallelSize     string
+	// vLLM runtime parameters (model-specific)
 	MaxModelLen            string
 	GPUMemoryUtilization   string
 	EnableChunkedPrefill   string
@@ -28,19 +24,18 @@ type ModelConfig struct {
 	Dtype                  string
 	DisableCustomAllReduce string
 	EnablePrefixCaching    string
-	CPUOffloadGB           string
 	EnableAutoToolChoice   string
 }
 
 // ToConfigMapData converts ModelConfig to ConfigMap data format
+//
+// Deprecated: ConfigMaps are no longer used, config read directly from CRD
 func (m *ModelConfig) ToConfigMapData() map[string]string {
 	return map[string]string{
 		"MODEL_NAME":                m.ModelName,
 		"SERVED_MODEL_NAME":         m.ServedModelName,
 		"TOOL_CALL_PARSER":          m.ToolCallParser,
 		"REASONING_PARSER":          m.ReasoningParser,
-		"GPU_COUNT":                 m.GPUCount,
-		"TENSOR_PARALLEL_SIZE":      m.TensorParallelSize,
 		"MAX_MODEL_LEN":             m.MaxModelLen,
 		"GPU_MEMORY_UTILIZATION":    m.GPUMemoryUtilization,
 		"ENABLE_CHUNKED_PREFILL":    m.EnableChunkedPrefill,
@@ -49,28 +44,19 @@ func (m *ModelConfig) ToConfigMapData() map[string]string {
 		"DTYPE":                     m.Dtype,
 		"DISABLE_CUSTOM_ALL_REDUCE": m.DisableCustomAllReduce,
 		"ENABLE_PREFIX_CACHING":     m.EnablePrefixCaching,
-		"CPU_OFFLOAD_GB":            m.CPUOffloadGB,
 		"ENABLE_AUTO_TOOL_CHOICE":   m.EnableAutoToolChoice,
 	}
 }
 
 // FromConfigMapData creates a ModelConfig from ConfigMap data
+//
+// Deprecated: ConfigMaps are no longer used, config read directly from CRD
 func FromConfigMapData(data map[string]string) *ModelConfig {
-	// If GPU_COUNT is specified, use it for tensor-parallel-size
-	// Otherwise fall back to TENSOR_PARALLEL_SIZE
-	gpuCount := data["GPU_COUNT"]
-	tensorParallelSize := data["TENSOR_PARALLEL_SIZE"]
-	if gpuCount != "" {
-		tensorParallelSize = gpuCount
-	}
-
 	return &ModelConfig{
 		ModelName:              data["MODEL_NAME"],
 		ServedModelName:        data["SERVED_MODEL_NAME"],
 		ToolCallParser:         data["TOOL_CALL_PARSER"],
 		ReasoningParser:        data["REASONING_PARSER"],
-		GPUCount:               gpuCount,
-		TensorParallelSize:     tensorParallelSize,
 		MaxModelLen:            data["MAX_MODEL_LEN"],
 		GPUMemoryUtilization:   data["GPU_MEMORY_UTILIZATION"],
 		EnableChunkedPrefill:   data["ENABLE_CHUNKED_PREFILL"],
@@ -79,7 +65,6 @@ func FromConfigMapData(data map[string]string) *ModelConfig {
 		Dtype:                  data["DTYPE"],
 		DisableCustomAllReduce: data["DISABLE_CUSTOM_ALL_REDUCE"],
 		EnablePrefixCaching:    data["ENABLE_PREFIX_CACHING"],
-		CPUOffloadGB:           data["CPU_OFFLOAD_GB"],
 		EnableAutoToolChoice:   data["ENABLE_AUTO_TOOL_CHOICE"],
 	}
 }
@@ -100,5 +85,35 @@ func (m *ModelConfig) Validate() error {
 	if m.ServedModelName == "" {
 		return fmt.Errorf("servedModelName cannot be empty")
 	}
+
+	// Validate mandatory vLLM runtime parameters
+	if m.MaxModelLen == "" {
+		return fmt.Errorf("maxModelLen is required")
+	}
+	if m.MaxNumBatchedTokens == "" {
+		return fmt.Errorf("maxNumBatchedTokens is required")
+	}
+	if m.MaxNumSeqs == "" {
+		return fmt.Errorf("maxNumSeqs is required")
+	}
+	if m.GPUMemoryUtilization == "" {
+		return fmt.Errorf("gpuMemoryUtilization is required")
+	}
+	if m.Dtype == "" {
+		return fmt.Errorf("dtype is required")
+	}
+	if m.EnableChunkedPrefill == "" {
+		return fmt.Errorf("enableChunkedPrefill is required")
+	}
+	if m.DisableCustomAllReduce == "" {
+		return fmt.Errorf("disableCustomAllReduce is required")
+	}
+	if m.EnablePrefixCaching == "" {
+		return fmt.Errorf("enablePrefixCaching is required")
+	}
+	if m.EnableAutoToolChoice == "" {
+		return fmt.Errorf("enableAutoToolChoice is required")
+	}
+
 	return nil
 }

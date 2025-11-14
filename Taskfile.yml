@@ -1,63 +1,46 @@
 version: '3'
 
+includes:
+  dev:
+    taskfile: ./Taskfile.dev.yml
+    dir: .
+  k3d:
+    taskfile: ./Taskfile.k3d.yml
+    dir: .
+
 vars:
-  IMAGE: '{{.IMAGE | default "vllm-chill"}}'
+  IMAGE: '{{.IMAGE | default "efortin/vllm-chill"}}'
   TAG: '{{.TAG | default "latest"}}'
+  CLUSTER_NAME: vllm-test
+  K8S_CONTEXT: k3d-vllm-test
+  NAMESPACE: vllm
 
 tasks:
-  # Task 1: Development
-  dev:
-    desc: "Run tests and build locally"
+  # Main development workflow
+  default:
+    desc: "Run default development workflow (test + build)"
     cmds:
-      - go mod download
-      - go test -v ./...
-      - go build -o bin/vllm-chill ./cmd/autoscaler
-      - echo "Build successful! Binary at bin/vllm-chill"
+      - task: dev:test
+      - task: dev:build
 
-  # Task 2: Test
-  test:
-    desc: "Run all tests with coverage"
+  # Run all tests (unit + integration)
+  "test:all":
+    desc: "Run all tests (unit + integration)"
     cmds:
-      - go test -v -race -coverprofile=coverage.out ./...
-      - go tool cover -func=coverage.out
+      - task: dev:test
+      - task: k3d:test:go
+      - echo "All tests passed!"
 
-  # Task 3: Lint
-  lint:
-    desc: "Run golangci-lint"
+  # Full CI check (lint + test + build)
+  ci:
+    desc: "Run full CI checks (lint + test + build)"
     cmds:
-      - golangci-lint run ./...
+      - task: dev:check
 
-  # Task 4: Lint with auto-fix
-  "lint:fix":
-    desc: "Run golangci-lint with auto-fix"
+  # Release workflow (check + docker build)
+  release:
+    desc: "Run release workflow (check + docker build)"
     cmds:
-      - golangci-lint run --fix ./...
-
-  # Task 5: Build & Push Docker image
-  docker:
-    desc: "Build and push multi-arch Docker image"
-    cmds:
-      - "docker buildx build --platform linux/amd64,linux/arm64 -t {{.IMAGE}}:{{.TAG}} --push ."
-      - 'echo "image pushed: {{.IMAGE}}:{{.TAG}}"'
-
-  # Task 6: Build
-  build:
-    desc: "Build binary"
-    cmds:
-      - go build -o bin/vllm-chill ./cmd/autoscaler
-      - echo "Build successful! Binary at bin/vllm-chill"
-
-  # Task 7: Local run
-  run:
-    desc: "Run locally (requires kubeconfig)"
-    cmds:
-      - go run ./cmd/autoscaler serve
-
-  # Task 8: Full check (lint + test + build)
-  check:
-    desc: "Run full checks (lint, test, build)"
-    cmds:
-      - task: lint
-      - task: test
-      - task: build
-      - echo "All checks passed!"
+      - task: dev:check
+      - task: dev:docker:build
+      - echo "Release complete!"

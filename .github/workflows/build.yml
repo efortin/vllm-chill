@@ -56,11 +56,25 @@ jobs:
         fail_ci_if_error: false
         flags: unittests
 
-    - name: Upload coverage artifacts
-      uses: actions/upload-artifact@v4
+  deadcode:
+    name: Deadcode Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
       with:
-        name: coverage-report
-        path: coverage.html
+        go-version: '1.23'
+        cache: true
+
+    - name: Install deadcode
+      run: go install golang.org/x/tools/cmd/deadcode@latest
+
+    - name: Run deadcode analysis
+      run: deadcode ./...
 
   build:
     name: Build
@@ -81,10 +95,4 @@ jobs:
 
     - name: Test binary execution
       run: ./bin/vllm-chill --help
-
-    - name: Upload binary artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: vllm-chill-binary
-        path: bin/vllm-chill
 

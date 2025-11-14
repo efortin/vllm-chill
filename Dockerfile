@@ -1,23 +1,11 @@
-# Build stage with CUDA support for NVML
-FROM nvidia/cuda:12.1.0-base-ubuntu22.04 AS builder
+# Build stage
+FROM golang:1.24-bookworm AS builder
 
-# Install Go and build dependencies
-RUN apt-get update && apt-get install -y \
-    wget \
-    git \
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libc6-dev \
-    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Go 1.25
-RUN wget https://go.dev/dl/go1.23.4.linux-amd64.tar.gz && \
-    tar -C /usr/local -xzf go1.23.4.linux-amd64.tar.gz && \
-    rm go1.23.4.linux-amd64.tar.gz
-
-ENV PATH="/usr/local/go/bin:${PATH}"
-ENV GOPATH="/go"
-ENV PATH="${GOPATH}/bin:${PATH}"
 
 WORKDIR /app
 
@@ -28,10 +16,14 @@ RUN go mod download
 # Copy source code
 COPY . .
 
+# Build args for versioning (optional - defaults for manual builds)
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG DATE=unknown
+
 # Build with CGO enabled for NVML support
-RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
-    -a \
-    -ldflags="-w -s" \
+RUN CGO_ENABLED=1 go build \
+    -ldflags="-w -s -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
     -o vllm-chill ./cmd/autoscaler
 
 # Final stage - use NVIDIA base for runtime NVML access

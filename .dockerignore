@@ -1,5 +1,49 @@
 *.md
 .git
 .gitignore
-Dockerfile
 .dockerignore
+.golangci.yml
+.goreleaser.yml
+
+# Binaries
+autoscaler
+vllm-chill
+bin/
+go/
+
+# Test and coverage files
+*.out
+coverage.out
+scaling_coverage.out
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# CI/CD
+.github/
+
+# Kubernetes manifests (not needed for build)
+manifests/
+
+# Documentation and examples
+docs/
+examples/
+QUICKSTART.md
+README.md
+LICENSE
+
+# Test files
+test/
+
+# Scripts (usually not needed for build)
+scripts/
+
+# Task files
+Taskfile.yml
+
+# Claude
+.claude/

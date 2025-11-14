@@ -27,14 +27,10 @@ func NewK8sManager(clientset kubernetes.Interface, config *Config) *K8sManager {
 	}
 }
 
-// EnsureVLLMResources ensures the vLLM service and configmap exist
+// EnsureVLLMResources ensures the vLLM service exists
 // Note: Pod is created on demand, not at startup
+// ConfigMap is no longer used - model config is read directly from CRD
 func (m *K8sManager) EnsureVLLMResources(ctx context.Context, initialModel *ModelConfig) error {
-	// Ensure ConfigMap exists
-	if err := m.ensureConfigMap(ctx, initialModel); err != nil {
-		return fmt.Errorf("failed to ensure configmap: %w", err)
-	}
-
 	// Ensure Service exists
 	if err := m.ensureService(ctx); err != nil {
 		return fmt.Errorf("failed to ensure service: %w", err)
@@ -42,45 +38,15 @@ func (m *K8sManager) EnsureVLLMResources(ctx context.Context, initialModel *Mode
 
 	// Note: We don't create the pod here - it will be created on first request
 	log.Printf("K8s resources initialized (pod will be created on demand)")
+	log.Printf("Model config will be read directly from CRD: %s", initialModel.ServedModelName)
 
 	return nil
 }
 
-// ensureConfigMap creates or updates the ConfigMap
+// ensureConfigMap is deprecated - model config is now read directly from CRD
+// Kept for backward compatibility but not used
 func (m *K8sManager) ensureConfigMap(ctx context.Context, modelConfig *ModelConfig) error {
-	configMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      m.config.ConfigMapName,
-			Namespace: m.config.Namespace,
-			Labels: map[string]string{
-				"app":        "vllm",
-				"managed-by": "vllm-chill",
-			},
-		},
-		Data: modelConfig.ToConfigMapData(),
-	}
-
-	existing, err := m.clientset.CoreV1().ConfigMaps(m.config.Namespace).Get(ctx, m.config.ConfigMapName, metav1.GetOptions{})
-	if err != nil {
-		if errors.IsNotFound(err) {
-			// Create new ConfigMap
-			_, err = m.clientset.CoreV1().ConfigMaps(m.config.Namespace).Create(ctx, configMap, metav1.CreateOptions{})
-			if err != nil {
-				return fmt.Errorf("failed to create configmap: %w", err)
-			}
-			log.Printf("Created ConfigMap %s/%s", m.config.Namespace, m.config.ConfigMapName)
-			return nil
-		}
-		return fmt.Errorf("failed to get configmap: %w", err)
-	}
-
-	// Update existing ConfigMap
-	existing.Data = configMap.Data
-	_, err = m.clientset.CoreV1().ConfigMaps(m.config.Namespace).Update(ctx, existing, metav1.UpdateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to update configmap: %w", err)
-	}
-	log.Printf("Updated ConfigMap %s/%s", m.config.Namespace, m.config.ConfigMapName)
+	log.Printf("ConfigMap management is deprecated - model config is read directly from CRD")
 	return nil
 }
 
@@ -203,12 +169,86 @@ func (m *K8sManager) PodExists(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
+// VerifyPodConfig checks if the running pod configuration matches the expected model config
+// Returns true if config matches, false if there's a drift
+func (m *K8sManager) VerifyPodConfig(ctx context.Context, modelConfig *ModelConfig) (bool, error) {
+	pod, err := m.GetPod(ctx)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return true, nil // No pod means no drift
+		}
+		return false, fmt.Errorf("failed to get pod: %w", err)
+	}
+
+	// Check if pod is running
+	if pod.Status.Phase != corev1.PodRunning {
+		return true, nil // Pod not running yet, skip verification
+	}
+
+	// Get container args from running pod
+	if len(pod.Spec.Containers) == 0 {
+		return false, fmt.Errorf("no containers in pod")
+	}
+	container := pod.Spec.Containers[0]
+
+	// Build expected args from model config
+	expectedArgs := m.buildVLLMArgs(modelConfig)
+
+	// Compare key parameters
+	actualArgsMap := argsToMap(container.Args)
+	expectedArgsMap := argsToMap(expectedArgs)
+
+	// Check critical parameters that should match
+	criticalParams := []string{
+		"--model",
+		"--served-model-name",
+		"--max-model-len",
+		"--gpu-memory-utilization",
+		"--max-num-batched-tokens",
+		"--max-num-seqs",
+		"--dtype",
+		"--cpu-offload-gb",
+		"--tool-call-parser",
+	}
+
+	for _, param := range criticalParams {
+		actual := actualArgsMap[param]
+		expected := expectedArgsMap[param]
+		if actual != expected {
+			log.Printf("Config drift detected: %s actual=%s expected=%s", param, actual, expected)
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+// argsToMap converts args slice to map for easier comparison
+func argsToMap(args []string) map[string]string {
+	m := make(map[string]string)
+	for i := 0; i < len(args); i++ {
+		if args[i][0] == '-' && i+1 < len(args) && args[i+1][0] != '-' {
+			m[args[i]] = args[i+1]
+			i++ // Skip next arg as it's the value
+		} else if args[i][0] == '-' {
+			m[args[i]] = "true" // Flag without value
+		}
+	}
+	return m
+}
+
 // buildVLLMArgs builds the vLLM command-line arguments from ModelConfig
 func (m *K8sManager) buildVLLMArgs(modelConfig *ModelConfig) []string {
+	// Use GPU count from infrastructure config for tensor-parallel-size
+	gpuCount := m.config.GPUCount
+	if gpuCount == 0 {
+		gpuCount = 2 // Default to 2 GPUs
+	}
+
 	args := []string{
 		"--model", modelConfig.ModelName,
 		"--served-model-name", modelConfig.ServedModelName,
-		"--tensor-parallel-size", modelConfig.TensorParallelSize,
+		"--tensor-parallel-size", fmt.Sprintf("%d", gpuCount),
 		"--max-model-len", modelConfig.MaxModelLen,
 		"--gpu-memory-utilization", modelConfig.GPUMemoryUtilization,
 	}
@@ -232,7 +272,9 @@ func (m *K8sManager) buildVLLMArgs(modelConfig *ModelConfig) []string {
 		args = append(args, "--enable-prefix-caching")
 	}
 
-	args = append(args, "--cpu-offload-gb", modelConfig.CPUOffloadGB)
+	// Use CPU offload from infrastructure config
+	cpuOffloadGB := m.config.CPUOffloadGB
+	args = append(args, "--cpu-offload-gb", fmt.Sprintf("%d", cpuOffloadGB))
 
 	if modelConfig.EnableAutoToolChoice == "true" {
 		args = append(args, "--enable-auto-tool-choice")
@@ -258,15 +300,12 @@ func (m *K8sManager) buildVLLMArgs(modelConfig *ModelConfig) []string {
 
 // buildPodSpec builds the pod specification for vLLM
 func (m *K8sManager) buildPodSpec(modelConfig *ModelConfig) corev1.PodSpec {
-	// Determine GPU count for resource limits
-	// Priority: GPU_COUNT > TENSOR_PARALLEL_SIZE > default 2
-	gpuCount := modelConfig.GPUCount
-	if gpuCount == "" {
-		gpuCount = modelConfig.TensorParallelSize
+	// Use GPU count from infrastructure config (not model config)
+	gpuCount := m.config.GPUCount
+	if gpuCount == 0 {
+		gpuCount = 2 // Default to 2 GPUs
 	}
-	if gpuCount == "" {
-		gpuCount = "2"
-	}
+	gpuCountStr := fmt.Sprintf("%d", gpuCount)
 
 	return corev1.PodSpec{
 		TerminationGracePeriodSeconds: func() *int64 { t := int64(0); return &t }(),
@@ -319,12 +358,12 @@ func (m *K8sManager) buildPodSpec(modelConfig *ModelConfig) corev1.PodSpec {
 				},
 				Resources: corev1.ResourceRequirements{
 					Limits: corev1.ResourceList{
-						corev1.ResourceMemory:                 resource.MustParse("32Gi"),
-						corev1.ResourceName("nvidia.com/gpu"): resource.MustParse(gpuCount),
+						corev1.ResourceMemory: resource.MustParse("64Gi"),
+						"nvidia.com/gpu":      resource.MustParse(gpuCountStr),
 					},
 					Requests: corev1.ResourceList{
-						corev1.ResourceMemory:                 resource.MustParse("16Gi"),
-						corev1.ResourceName("nvidia.com/gpu"): resource.MustParse(gpuCount),
+						corev1.ResourceMemory: resource.MustParse("32Gi"),
+						"nvidia.com/gpu":      resource.MustParse(gpuCountStr),
 					},
 				},
 				VolumeMounts: []corev1.VolumeMount{

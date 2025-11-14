@@ -3,8 +3,17 @@ package kubernetes
 import (
 	"testing"
 
+	"github.com/efortin/vllm-chill/pkg/apis/vllm/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
+
+func TestModelNotFoundError(t *testing.T) {
+	err := &ModelNotFoundError{ModelID: "test-model"}
+	expectedMsg := "model 'test-model' not found"
+	if err.Error() != expectedMsg {
+		t.Errorf("Error() = %v, want %v", err.Error(), expectedMsg)
+	}
+}
 
 func TestCRDClient_ConvertToModelConfig(t *testing.T) {
 	tests := []struct {
@@ -54,7 +63,6 @@ func TestCRDClient_ConvertToModelConfig(t *testing.T) {
 				Dtype:                  "float16",
 				DisableCustomAllReduce: "true",
 				EnablePrefixCaching:    "true",
-				CPUOffloadGB:           "0",
 				EnableAutoToolChoice:   "true",
 			},
 			wantErr: false,
@@ -98,8 +106,66 @@ func TestCRDClient_ConvertToModelConfig(t *testing.T) {
 }
 
 // Note: GetModel and ListModels tests are skipped because the fake dynamic client
-// has issues with custom GVR after renaming from vllmmodels to models.
-// These methods are tested in integration tests.
+// has issues with custom GVR. These methods are tested in integration tests.
+
+func TestConvertUnstructuredToVLLMModel(t *testing.T) {
+	tests := []struct {
+		name    string
+		obj     *unstructured.Unstructured
+		wantErr bool
+	}{
+		{
+			name: "valid model",
+			obj: &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "vllm.sir-alfred.io/v1alpha1",
+					"kind":       "VLLMModel",
+					"metadata": map[string]interface{}{
+						"name":      "test-model",
+						"namespace": "default",
+					},
+					"spec": map[string]interface{}{
+						"modelName":       "test/model",
+						"servedModelName": "test-model",
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing spec",
+			obj: &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "vllm.sir-alfred.io/v1alpha1",
+					"kind":       "VLLMModel",
+					"metadata": map[string]interface{}{
+						"name": "test-model",
+					},
+				},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := &v1alpha1.VLLMModel{}
+			err := convertUnstructuredToVLLMModel(tt.obj, model)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("convertUnstructuredToVLLMModel() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr {
+				if model.Name != "test-model" {
+					t.Errorf("Name = %v, want test-model", model.Name)
+				}
+				if model.Spec.ModelName != "test/model" {
+					t.Errorf("ModelName = %v, want test/model", model.Spec.ModelName)
+				}
+			}
+		})
+	}
+}
 
 func TestCRDClient_ConvertToModelConfig_AllFields(t *testing.T) {
 	obj := &unstructured.Unstructured{
@@ -172,10 +238,8 @@ func TestCRDClient_ConvertToModelConfig_AllFields(t *testing.T) {
 	if config.EnablePrefixCaching != "true" {
 		t.Errorf("EnablePrefixCaching = %v, want true", config.EnablePrefixCaching)
 	}
-	if config.CPUOffloadGB != "4" {
-		t.Errorf("CPUOffloadGB = %v, want 4", config.CPUOffloadGB)
-	}
 	if config.EnableAutoToolChoice != "false" {
 		t.Errorf("EnableAutoToolChoice = %v, want false", config.EnableAutoToolChoice)
 	}
+	// Note: cpuOffloadGB is now infrastructure-level, not in ModelConfig
 }

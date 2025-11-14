@@ -6,4 +6,6 @@ type Config struct {
 	Namespace     string
 	Deployment    string
 	ConfigMapName string
+	GPUCount      int // Number of GPUs to allocate (infrastructure-level)
+	CPUOffloadGB  int // CPU offload in GB (infrastructure-level)
 }

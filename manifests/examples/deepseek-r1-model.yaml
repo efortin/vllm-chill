@@ -11,17 +11,14 @@ spec:
   toolCallParser: "hermes"
   reasoningParser: "deepseek_r1"
 
-  # GPU Configuration
-  gpuCount: 2
-
-  # vLLM Runtime Parameters
+  # vLLM Runtime Parameters (model-specific)
+  # Note: GPU count and CPU offload are configured at vllm-chill deployment level (GPU_COUNT and CPU_OFFLOAD_GB env vars)
   maxModelLen: 32768
   gpuMemoryUtilization: 0.91
   enableChunkedPrefill: true
   maxNumBatchedTokens: 8192
   maxNumSeqs: 16
-  dtype: "float16"
+  dtype: "auto"
   disableCustomAllReduce: true
   enablePrefixCaching: true
-  cpuOffloadGB: 0
   enableAutoToolChoice: true
