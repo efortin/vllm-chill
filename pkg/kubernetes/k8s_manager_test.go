@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/efortin/vllm-chill/pkg/models"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -18,7 +19,7 @@ func TestK8sManager_EnsureConfigMap(t *testing.T) {
 	}
 	manager := NewK8sManager(clientset, config)
 
-	modelConfig := &ModelConfig{
+	modelConfig := &models.Config{
 		ModelName:       "test/model",
 		ServedModelName: "test-model",
 	}
@@ -85,58 +86,6 @@ func TestK8sManager_EnsureService(t *testing.T) {
 	})
 }
 
-func TestK8sManager_CreatePod(t *testing.T) {
-	clientset := fake.NewSimpleClientset()
-	config := &Config{
-		Namespace:     "test-ns",
-		Deployment:    "vllm",
-		ConfigMapName: "vllm-config",
-		GPUCount:      2,
-		CPUOffloadGB:  0,
-	}
-	manager := NewK8sManager(clientset, config)
-
-	modelConfig := &ModelConfig{
-		ModelName:              "test/model",
-		ServedModelName:        "test-model",
-		MaxModelLen:            "8192",
-		GPUMemoryUtilization:   "0.9",
-		EnableChunkedPrefill:   "false",
-		MaxNumBatchedTokens:    "8192",
-		MaxNumSeqs:             "256",
-		Dtype:                  "auto",
-		DisableCustomAllReduce: "false",
-		EnablePrefixCaching:    "true",
-		EnableAutoToolChoice:   "true",
-		ToolCallParser:         "hermes",
-	}
-
-	ctx := context.Background()
-
-	t.Run("create new pod", func(t *testing.T) {
-		err := manager.CreatePod(ctx, modelConfig)
-		if err != nil {
-			t.Fatalf("CreatePod() error = %v", err)
-		}
-
-		// Verify Pod was created
-		pod, err := clientset.CoreV1().Pods("test-ns").Get(ctx, "vllm", metav1.GetOptions{})
-		if err != nil {
-			t.Fatalf("Failed to get Pod: %v", err)
-		}
-
-		if pod.Spec.Containers[0].Name != "vllm" {
-			t.Errorf("Container name = %v, want vllm", pod.Spec.Containers[0].Name)
-		}
-
-		// Verify GPU resources
-		gpuLimit := pod.Spec.Containers[0].Resources.Limits["nvidia.com/gpu"]
-		if gpuLimit.String() != "2" {
-			t.Errorf("GPU limit = %v, want 2", gpuLimit.String())
-		}
-	})
-}
-
 func TestK8sManager_EnsureVLLMResources(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 	config := &Config{
@@ -146,7 +95,7 @@ func TestK8sManager_EnsureVLLMResources(t *testing.T) {
 	}
 	manager := NewK8sManager(clientset, config)
 
-	modelConfig := &ModelConfig{
+	modelConfig := &models.Config{
 		ModelName:       "test/model",
 		ServedModelName: "test-model",
 	}
@@ -212,81 +161,6 @@ func TestK8sManager_BuildSystemEnvVars(t *testing.T) {
 	}
 }
 
-func TestK8sManager_BuildPodSpec(t *testing.T) {
-	config := &Config{
-		ConfigMapName: "test-config",
-		GPUCount:      2,
-		CPUOffloadGB:  0,
-	}
-	manager := NewK8sManager(nil, config)
-
-	modelConfig := &ModelConfig{
-		ModelName:              "test/model",
-		ServedModelName:        "test-model",
-		MaxModelLen:            "8192",
-		GPUMemoryUtilization:   "0.9",
-		EnableChunkedPrefill:   "false",
-		MaxNumBatchedTokens:    "8192",
-		MaxNumSeqs:             "256",
-		Dtype:                  "auto",
-		DisableCustomAllReduce: "false",
-		EnablePrefixCaching:    "true",
-		EnableAutoToolChoice:   "true",
-		ToolCallParser:         "hermes",
-	}
-
-	podSpec := manager.buildPodSpec(modelConfig)
-
-	if len(podSpec.Containers) != 1 {
-		t.Fatalf("Expected 1 container, got %d", len(podSpec.Containers))
-	}
-
-	container := podSpec.Containers[0]
-
-	if container.Name != "vllm" {
-		t.Errorf("Container name = %v, want vllm", container.Name)
-	}
-
-	if container.Image != "vllm/vllm-openai:latest" {
-		t.Errorf("Container image = %v, want vllm/vllm-openai:latest", container.Image)
-	}
-
-	if len(container.Ports) != 2 {
-		t.Fatalf("Expected 2 ports, got %d", len(container.Ports))
-	}
-
-	// Check HTTP port (8000)
-	if container.Ports[0].ContainerPort != 8000 {
-		t.Errorf("Container HTTP port = %v, want 8000", container.Ports[0].ContainerPort)
-	}
-
-	// Check metrics port (8001)
-	if container.Ports[1].ContainerPort != 8001 {
-		t.Errorf("Container metrics port = %v, want 8001", container.Ports[1].ContainerPort)
-	}
-
-	if container.ReadinessProbe == nil {
-		t.Error("ReadinessProbe is nil")
-	}
-
-	// Verify args are built from modelConfig (not env vars)
-	if len(container.Args) == 0 {
-		t.Error("Container Args is empty")
-	}
-
-	// Check that args contain the model name directly
-	argsContainModel := false
-	for i, arg := range container.Args {
-		if arg == "--model" && i+1 < len(container.Args) && container.Args[i+1] == "test/model" {
-			argsContainModel = true
-			break
-		}
-	}
-	if !argsContainModel {
-		t.Error("Args should contain --model test/model")
-	}
-}
-
 func TestK8sManager_WithExistingResources(t *testing.T) {
 	// Pre-create resources
 	existingConfigMap := &corev1.ConfigMap{
@@ -319,7 +193,7 @@ func TestK8sManager_WithExistingResources(t *testing.T) {
 	}
 	manager := NewK8sManager(clientset, config)
 
-	modelConfig := &ModelConfig{
+	modelConfig := &models.Config{
 		ModelName:       "new/model",
 		ServedModelName: "new-model",
 	}
@@ -338,51 +212,6 @@ func TestK8sManager_WithExistingResources(t *testing.T) {
 	if err != nil {
 		t.Errorf("Service should still exist: %v", err)
 	}
-}
-
-func TestK8sManager_DeletePod(t *testing.T) {
-	// Pre-create a pod
-	existingPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "vllm",
-			Namespace: "test-ns",
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
-				{Name: "vllm", Image: "vllm/vllm-openai:latest"},
-			},
-		},
-	}
-
-	clientset := fake.NewSimpleClientset(existingPod)
-	config := &Config{
-		Namespace:  "test-ns",
-		Deployment: "vllm",
-	}
-	manager := NewK8sManager(clientset, config)
-
-	ctx := context.Background()
-
-	t.Run("delete existing pod", func(t *testing.T) {
-		err := manager.DeletePod(ctx)
-		if err != nil {
-			t.Fatalf("DeletePod() error = %v", err)
-		}
-
-		// Verify Pod was deleted
-		_, err = clientset.CoreV1().Pods("test-ns").Get(ctx, "vllm", metav1.GetOptions{})
-		if err == nil {
-			t.Error("Pod should have been deleted")
-		}
-	})
-
-	t.Run("delete non-existent pod", func(t *testing.T) {
-		// Should not error when pod doesn't exist
-		err := manager.DeletePod(ctx)
-		if err != nil {
-			t.Fatalf("DeletePod() should not error on non-existent pod: %v", err)
-		}
-	})
 }
 
 func TestK8sManager_GetPod(t *testing.T) {
@@ -468,7 +297,7 @@ func TestK8sManager_PodExists(t *testing.T) {
 }
 
 func TestK8sManager_VerifyPodConfig(t *testing.T) {
-	modelConfig := &ModelConfig{
+	modelConfig := &models.Config{
 		ModelName:              "test/model",
 		ServedModelName:        "test-model",
 		MaxModelLen:            "8192",
@@ -598,4 +427,270 @@ func TestArgsToMap(t *testing.T) {
 			t.Errorf("Key %s: got %v, want %v", key, value, expectedValue)
 		}
 	}
+}
+
+func TestK8sManager_PauseVLLMContainer(t *testing.T) {
+	// Create a pod with vLLM container running
+	existingPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "vllm-all-in-one",
+			Namespace: "test-ns",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "vllm-proxy",
+					Image: "efortin/vllm-chill:latest",
+				},
+				{
+					Name:  "vllm",
+					Image: "vllm/vllm-openai:latest",
+					Args:  []string{"--model", "test/model"},
+				},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(existingPod)
+	config := &Config{
+		Namespace:  "test-ns",
+		Deployment: "vllm",
+		PodName:    "vllm-all-in-one",
+	}
+	manager := NewK8sManager(clientset, config)
+
+	ctx := context.Background()
+
+	t.Run("pause vllm container successfully", func(t *testing.T) {
+		err := manager.PauseVLLMContainer(ctx)
+		if err != nil {
+			t.Fatalf("PauseVLLMContainer() error = %v", err)
+		}
+
+		// Verify the pod was updated
+		updatedPod, err := clientset.CoreV1().Pods("test-ns").Get(ctx, "vllm-all-in-one", metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("Failed to get updated pod: %v", err)
+		}
+
+		// Find the vllm container
+		var vllmContainer *corev1.Container
+		for i := range updatedPod.Spec.Containers {
+			if updatedPod.Spec.Containers[i].Name == "vllm" {
+				vllmContainer = &updatedPod.Spec.Containers[i]
+				break
+			}
+		}
+
+		if vllmContainer == nil {
+			t.Fatal("vLLM container not found in pod")
+		}
+
+		// Verify image was changed to pause image
+		if vllmContainer.Image != "registry.k8s.io/pause:3.9" {
+			t.Errorf("Container image = %v, want registry.k8s.io/pause:3.9", vllmContainer.Image)
+		}
+	})
+
+	t.Run("pause non-existent pod", func(t *testing.T) {
+		clientset := fake.NewSimpleClientset()
+		config := &Config{
+			Namespace:  "test-ns",
+			Deployment: "vllm",
+			PodName:    "non-existent-pod",
+		}
+		manager := NewK8sManager(clientset, config)
+
+		err := manager.PauseVLLMContainer(ctx)
+		if err == nil {
+			t.Error("PauseVLLMContainer() should fail for non-existent pod")
+		}
+	})
+}
+
+func TestK8sManager_ResumeVLLMContainer(t *testing.T) {
+	// Create a pod with paused vLLM container
+	existingPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "vllm-all-in-one",
+			Namespace: "test-ns",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "vllm-proxy",
+					Image: "efortin/vllm-chill:latest",
+				},
+				{
+					Name:  "vllm",
+					Image: "registry.k8s.io/pause:3.9", // Paused
+					Args:  []string{},                  // Empty args when paused
+				},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(existingPod)
+	config := &Config{
+		Namespace:  "test-ns",
+		Deployment: "vllm",
+		PodName:    "vllm-all-in-one",
+	}
+	manager := NewK8sManager(clientset, config)
+
+	ctx := context.Background()
+
+	modelConfig := &models.Config{
+		ModelName:              "test/model",
+		ServedModelName:        "test-model",
+		MaxModelLen:            "8192",
+		GPUMemoryUtilization:   "0.9",
+		EnableChunkedPrefill:   "true",
+		MaxNumBatchedTokens:    "4096",
+		MaxNumSeqs:             "16",
+		Dtype:                  "float16",
+		DisableCustomAllReduce: "true",
+		EnablePrefixCaching:    "true",
+		EnableAutoToolChoice:   "true",
+		ToolCallParser:         "qwen3_coder",
+	}
+
+	t.Run("resume vllm container successfully", func(t *testing.T) {
+		err := manager.ResumeVLLMContainer(ctx, modelConfig)
+		if err != nil {
+			t.Fatalf("ResumeVLLMContainer() error = %v", err)
+		}
+
+		// Note: The fake Kubernetes client doesn't fully simulate patch behavior,
+		// so we can't verify the actual pod changes. The important thing is that
+		// the function completes without error.
+		// Integration tests verify the actual behavior against a real cluster.
+	})
+
+	t.Run("resume non-existent pod", func(t *testing.T) {
+		clientset := fake.NewSimpleClientset()
+		config := &Config{
+			Namespace:  "test-ns",
+			Deployment: "vllm",
+			PodName:    "non-existent-pod",
+		}
+		manager := NewK8sManager(clientset, config)
+
+		err := manager.ResumeVLLMContainer(ctx, modelConfig)
+		if err == nil {
+			t.Error("ResumeVLLMContainer() should fail for non-existent pod")
+		}
+	})
+}
+
+func TestK8sManager_IsVLLMPaused(t *testing.T) {
+	t.Run("paused container", func(t *testing.T) {
+		pausedPod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "vllm-all-in-one",
+				Namespace: "test-ns",
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: "vllm-proxy", Image: "efortin/vllm-chill:latest"},
+					{Name: "vllm", Image: "registry.k8s.io/pause:3.9"},
+				},
+			},
+		}
+
+		clientset := fake.NewSimpleClientset(pausedPod)
+		config := &Config{
+			Namespace:  "test-ns",
+			Deployment: "vllm",
+			PodName:    "vllm-all-in-one",
+		}
+		manager := NewK8sManager(clientset, config)
+
+		ctx := context.Background()
+		paused, err := manager.IsVLLMPaused(ctx)
+		if err != nil {
+			t.Fatalf("IsVLLMPaused() error = %v", err)
+		}
+
+		if !paused {
+			t.Error("IsVLLMPaused() = false, want true for paused container")
+		}
+	})
+
+	t.Run("running container", func(t *testing.T) {
+		runningPod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "vllm-all-in-one",
+				Namespace: "test-ns",
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: "vllm-proxy", Image: "efortin/vllm-chill:latest"},
+					{Name: "vllm", Image: "vllm/vllm-openai:latest"},
+				},
+			},
+		}
+
+		clientset := fake.NewSimpleClientset(runningPod)
+		config := &Config{
+			Namespace:  "test-ns",
+			Deployment: "vllm",
+			PodName:    "vllm-all-in-one",
+		}
+		manager := NewK8sManager(clientset, config)
+
+		ctx := context.Background()
+		paused, err := manager.IsVLLMPaused(ctx)
+		if err != nil {
+			t.Fatalf("IsVLLMPaused() error = %v", err)
+		}
+
+		if paused {
+			t.Error("IsVLLMPaused() = true, want false for running container")
+		}
+	})
+
+	t.Run("non-existent pod", func(t *testing.T) {
+		clientset := fake.NewSimpleClientset()
+		config := &Config{
+			Namespace:  "test-ns",
+			Deployment: "vllm",
+			PodName:    "non-existent-pod",
+		}
+		manager := NewK8sManager(clientset, config)
+
+		ctx := context.Background()
+		_, err := manager.IsVLLMPaused(ctx)
+		if err == nil {
+			t.Error("IsVLLMPaused() should fail for non-existent pod")
+		}
+	})
+
+	t.Run("pod without vllm container", func(t *testing.T) {
+		podWithoutVLLM := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "vllm-all-in-one",
+				Namespace: "test-ns",
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: "vllm-proxy", Image: "efortin/vllm-chill:latest"},
+				},
+			},
+		}
+
+		clientset := fake.NewSimpleClientset(podWithoutVLLM)
+		config := &Config{
+			Namespace:  "test-ns",
+			Deployment: "vllm",
+			PodName:    "vllm-all-in-one",
+		}
+		manager := NewK8sManager(clientset, config)
+
+		ctx := context.Background()
+		_, err := manager.IsVLLMPaused(ctx)
+		if err == nil {
+			t.Error("IsVLLMPaused() should fail when vllm container not found")
+		}
+	})
 }

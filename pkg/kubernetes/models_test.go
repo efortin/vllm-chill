@@ -2,10 +2,12 @@ package kubernetes
 
 import (
 	"testing"
+
+	"github.com/efortin/vllm-chill/pkg/models"
 )
 
 func TestModelConfig_ToConfigMapData(t *testing.T) {
-	config := &ModelConfig{
+	config := &models.Config{
 		ModelName:              "test/model",
 		ServedModelName:        "test-model",
 		ToolCallParser:         "hermes",
@@ -21,6 +23,7 @@ func TestModelConfig_ToConfigMapData(t *testing.T) {
 		EnableAutoToolChoice:   "true",
 	}
 
+	//nolint:staticcheck // Testing deprecated function for backward compatibility
 	data := config.ToConfigMapData()
 
 	tests := []struct {
@@ -68,7 +71,8 @@ func TestFromConfigMapData(t *testing.T) {
 		"ENABLE_AUTO_TOOL_CHOICE":   "true",
 	}
 
-	config := FromConfigMapData(data)
+	//nolint:staticcheck // Testing deprecated function for backward compatibility
+	config := models.FromConfigMapData(data)
 
 	if config.ModelName != "test/model" {
 		t.Errorf("ModelName = %v, want test/model", config.ModelName)
@@ -85,12 +89,12 @@ func TestFromConfigMapData(t *testing.T) {
 func TestModelConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		config  *ModelConfig
+		config  *models.Config
 		wantErr bool
 	}{
 		{
 			name: "valid config",
-			config: &ModelConfig{
+			config: &models.Config{
 				ModelName:       "test/model",
 				ServedModelName: "test-model",
 			},
@@ -98,21 +102,21 @@ func TestModelConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "missing model name",
-			config: &ModelConfig{
+			config: &models.Config{
 				ServedModelName: "test-model",
 			},
 			wantErr: true,
 		},
 		{
 			name: "missing served model name",
-			config: &ModelConfig{
+			config: &models.Config{
 				ModelName: "test/model",
 			},
 			wantErr: true,
 		},
 		{
 			name:    "empty config",
-			config:  &ModelConfig{},
+			config:  &models.Config{},
 			wantErr: true,
 		},
 	}
@@ -127,39 +131,4 @@ func TestModelConfig_Validate(t *testing.T) {
 	}
 }
 
-func TestBoolToString(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    *bool
-		expected string
-	}{
-		{
-			name:     "nil pointer",
-			input:    nil,
-			expected: "false",
-		},
-		{
-			name:     "true pointer",
-			input:    boolPtr(true),
-			expected: "true",
-		},
-		{
-			name:     "false pointer",
-			input:    boolPtr(false),
-			expected: "false",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := boolToString(tt.input)
-			if got != tt.expected {
-				t.Errorf("boolToString() = %v, want %v", got, tt.expected)
-			}
-		})
-	}
-}
-
-func boolPtr(b bool) *bool {
-	return &b
-}
+// TestBoolToString removed - this function is internal to the models package

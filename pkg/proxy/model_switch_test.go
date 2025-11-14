@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/efortin/vllm-chill/pkg/models"
 	"github.com/efortin/vllm-chill/pkg/stats"
 	"github.com/stretchr/testify/assert"
 )
@@ -53,18 +54,18 @@ func TestExtractModelFromRequest(t *testing.T) {
 }
 
 func TestModelNotFoundError(t *testing.T) {
-	err := &ModelNotFoundError{RequestedModel: "gpt-4"}
+	err := &models.NotFoundError{RequestedModel: "gpt-4"}
 	assert.Equal(t, "model 'gpt-4' not found", err.Error())
 }
 
 func TestGetModelNames(t *testing.T) {
-	models := []ModelInfo{
+	modelList := []models.ModelInfo{
 		{Name: "model1"},
 		{Name: "model2"},
 		{Name: "model3"},
 	}
 
-	names := getModelNames(models)
+	names := getModelNames(modelList)
 	assert.Equal(t, []string{"model1", "model2", "model3"}, names)
 }
 

@@ -1,0 +1,145 @@
+---
+# Fake vLLM deployment for integration testing
+# This pod simulates vLLM API without needing GPUs or large models
+apiVersion: v1
+kind: Pod
+metadata:
+  name: vllm-dummy
+  namespace: vllm
+  labels:
+    app: vllm-dummy
+    component: test
+spec:
+  containers:
+  - name: vllm-dummy
+    image: vllm-dummy:local
+    imagePullPolicy: Never  # Use locally built image in k3d
+    env:
+      - name: MODEL_NAME
+        value: "test/model"
+      - name: SERVED_MODEL_NAME
+        value: "test-model"
+      - name: PORT
+        value: "8000"
+    ports:
+      - containerPort: 8000
+        name: http
+        protocol: TCP
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: 8000
+      initialDelaySeconds: 2
+      periodSeconds: 5
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 8000
+      initialDelaySeconds: 5
+      periodSeconds: 10
+  restartPolicy: Always
+
+---
+# Service for fake vLLM (for proxy to connect to)
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-dummy-service
+  namespace: vllm
+  labels:
+    app: vllm-dummy
+spec:
+  selector:
+    app: vllm-dummy
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  type: ClusterIP
+
+---
+# All-in-one pod for testing (proxy + fake vLLM in sidecar)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: vllm-test-pod
+  namespace: vllm
+  labels:
+    app: vllm
+    component: test
+spec:
+  serviceAccountName: vllm-chill
+  terminationGracePeriodSeconds: 10
+
+  containers:
+  # vllm-proxy - the proxy we're testing
+  - name: vllm-proxy
+    image: vllm-chill:local
+    imagePullPolicy: Never  # Use locally built image
+    args:
+      - serve
+    env:
+      - name: VLLM_NAMESPACE
+        value: "vllm"
+      - name: VLLM_TARGET
+        value: "127.0.0.1"  # Localhost sidecar communication
+      - name: VLLM_PORT
+        value: "8000"
+      - name: MODEL_ID
+        value: "test-model"
+      - name: IDLE_TIMEOUT
+        value: "1m"
+      - name: PORT
+        value: "8080"
+      - name: POD_NAME
+        valueFrom:
+          fieldRef:
+            fieldPath: metadata.name
+    ports:
+      - containerPort: 8080
+        name: http
+        protocol: TCP
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: 8080
+      initialDelaySeconds: 2
+      periodSeconds: 5
+
+  # vllm-dummy - sidecar that simulates vLLM API
+  - name: vllm
+    image: vllm-dummy:local
+    imagePullPolicy: Never
+    env:
+      - name: MODEL_NAME
+        value: "test/model"
+      - name: SERVED_MODEL_NAME
+        value: "test-model"
+      - name: PORT
+        value: "8000"
+    ports:
+      - containerPort: 8000
+        name: http
+        protocol: TCP
+
+---
+# Service for the test pod
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-test-api
+  namespace: vllm
+  labels:
+    app: vllm
+    component: test
+spec:
+  selector:
+    app: vllm
+    component: test
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  type: ClusterIP
