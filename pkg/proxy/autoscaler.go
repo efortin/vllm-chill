@@ -537,6 +537,16 @@ func (as *AutoScaler) handleAnthropicFormatRequest(c *gin.Context) {
 	openAIBody["model"] = as.config.ModelID
 	log.Printf("[DEBUG] Overriding requested model '%v' with configured model: %s", originalModel, as.config.ModelID)
 
+	// Cap max_tokens to prevent context length errors
+	// Most models have 128K context, reserve reasonable buffer
+	const maxAllowedTokens = 20000 // Conservative limit to leave room for context
+	if maxTokens, ok := openAIBody["max_tokens"].(float64); ok {
+		if maxTokens > maxAllowedTokens {
+			log.Printf("[DEBUG] Capping max_tokens from %.0f to %d to prevent context overflow", maxTokens, maxAllowedTokens)
+			openAIBody["max_tokens"] = maxAllowedTokens
+		}
+	}
+
 	// Marshal to JSON
 	openAIBytes, err := json.Marshal(openAIBody)
 	if err != nil {
