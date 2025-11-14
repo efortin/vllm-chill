@@ -28,6 +28,12 @@ For home labs and small clusters with limited GPUs, this is costly when vLLM sit
 - **Automatic Wake**: Scales to 1 replica on first request, buffers connections during startup
 - **CRD-Based Model Configuration**: Define models as cluster-scoped Kubernetes resources
 - **Dynamic Model Switching**: Switch between models via API without redeploying
+- **Anthropic API Format Support**: 🆕 Transparent format translation for Claude Code compatibility
+  - Accepts Anthropic format (`/v1/messages`)
+  - Transforms to OpenAI format for vLLM
+  - Transforms response back to Anthropic format
+  - No local proxy needed - just set `ANTHROPIC_BASE_URL`
+  - See [Anthropic Format Support](docs/ANTHROPIC_FORMAT.md)
 - **Direct CRD Reading**: Model config read directly from CRD (no ConfigMap duplication)
 - **Automatic Resource Management**: Creates and manages vLLM Pod and Service
 - **Prometheus Metrics**: Always enabled at `/proxy/metrics` endpoint

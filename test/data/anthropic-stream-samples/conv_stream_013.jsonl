@@ -1,0 +1,27 @@
+# {"role": "user", "content": "Help me debug a Python import error in a monorepo.", "theme": "programming", "lang": "en"}
+event: message_start
+data: {"type": "message_start", "message": {"id": "msg_w5pbxns8vy", "type": "message", "role": "assistant", "content": []}, "conversation": "conv_stream_013", "created_at": "2025-11-14T12:47:25.541722Z", "meta": {"theme": "programming", "lang": "en", "simulated": true}}
+event: content_block_start
+data: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Let's break this down step"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " by step. Topic: "}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Help me debug a P"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "ython import error i"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "n a monorepo. I'll provide"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " a brief pla"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "n, then concrete ste"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "ps you can run today."}}
+event: content_block_stop
+data: {"type": "content_block_stop", "index": 0}
+event: message_delta
+data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"input_tokens": 348, "output_tokens": 220}}
+event: message_stop
+data: {"type": "message_stop"}

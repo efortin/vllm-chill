@@ -1,0 +1,29 @@
+# {"role": "user", "content": "What are evidence-based tips to improve sleep quality?", "theme": "health", "lang": "en"}
+event: message_start
+data: {"type": "message_start", "message": {"id": "msg_acjyyyksqq", "type": "message", "role": "assistant", "content": []}, "conversation": "conv_stream_016", "created_at": "2025-11-14T12:47:25.543653Z", "meta": {"theme": "health", "lang": "en", "simulated": true}}
+event: content_block_start
+data: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Let's break this d"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "own step by step. Top"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "ic: What are e"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "vidence-based tips to impro"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "ve sleep qua"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "lity? I'll provide a "}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "brief plan, then concrete "}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "steps you can "}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "run today."}}
+event: content_block_stop
+data: {"type": "content_block_stop", "index": 0}
+event: message_delta
+data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"input_tokens": 215, "output_tokens": 148}}
+event: message_stop
+data: {"type": "message_stop"}

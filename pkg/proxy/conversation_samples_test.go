@@ -62,7 +62,7 @@ type OpenAIToolFunction struct {
 }
 
 func loadConversationSamples(t *testing.T) []ConversationSample {
-	samplesDir := "../../test/data/conversation-stream-sample"
+	samplesDir := "../../test/data/openai-stream-sample"
 
 	files, err := filepath.Glob(filepath.Join(samplesDir, "conversation-*.json"))
 	require.NoError(t, err, "Failed to list conversation samples")

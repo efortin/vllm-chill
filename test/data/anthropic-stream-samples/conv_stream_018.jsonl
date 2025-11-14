@@ -1,0 +1,57 @@
+# {"role": "user", "content": "Create a morning routine for deep work with minimal context switching.", "theme": "productivity", "lang": "en"}
+event: message_start
+data: {"type": "message_start", "message": {"id": "msg_kbxwf8pl12", "type": "message", "role": "assistant", "content": []}, "conversation": "conv_stream_018", "created_at": "2025-11-14T12:47:25.544901Z", "meta": {"theme": "productivity", "lang": "en", "simulated": true}}
+event: content_block_start
+data: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "I'll start w"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "ith a quick outline, the"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "n details. Topic: "}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Create a morni"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "ng routine fo"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "r deep work with minimal "}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "context switching. I'll pr"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "ovide a brief pl"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "an, then concrete ste"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "ps you can run today."}}
+event: content_block_stop
+data: {"type": "content_block_stop", "index": 0}
+event: content_block_start
+data: {"type": "content_block_start", "index": 1, "content_block": {"type": "tool_use", "id": "tool_eqmk09jxku", "name": "tasks_db", "input": {"op": "list", "project": "inbox-cleanup"}}}
+event: content_block_stop
+data: {"type": "content_block_stop", "index": 1}
+event: tool_result
+data: {"type": "tool_result", "tool_use_id": "tool_eqmk09jxku", "content": {"ok": true, "summary": "Simulated result from tasks_db", "data_sample": {"note": "example payload"}}}
+event: content_block_start
+data: {"type": "content_block_start", "index": 2, "content_block": {"type": "text", "text": ""}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "Based on the tasks_db re"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "sult, here are "}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "actionable steps:"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "\n1) Apply the sma"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "llest viable c"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "hange.\n2) Verify w"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "ith a quick check.\n3) Iterat"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "e with safeguards."}}
+event: content_block_stop
+data: {"type": "content_block_stop", "index": 2}
+event: message_delta
+data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"input_tokens": 240, "output_tokens": 136}}
+event: message_stop
+data: {"type": "message_stop"}
