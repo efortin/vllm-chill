@@ -261,8 +261,11 @@ func (as *AutoScaler) ensureScaledUp(ctx context.Context) error {
 
 	if exists {
 		// Pod already exists, just wait for ready
+		// Use background context so request timeout doesn't cancel pod startup
 		as.mu.Unlock()
-		err := as.waitForReady(ctx, defaultScaleUpTimeout)
+		bgCtx, cancel := context.WithTimeout(context.Background(), defaultScaleUpTimeout)
+		defer cancel()
+		err := as.waitForReady(bgCtx, defaultScaleUpTimeout)
 		as.mu.Lock()
 		return err
 	}
@@ -290,7 +293,10 @@ func (as *AutoScaler) ensureScaledUp(ctx context.Context) error {
 		return err
 	}
 
-	err = as.waitForReady(ctx, defaultScaleUpTimeout)
+	// Use background context so request timeout doesn't cancel pod startup
+	bgCtx, cancel := context.WithTimeout(context.Background(), defaultScaleUpTimeout)
+	defer cancel()
+	err = as.waitForReady(bgCtx, defaultScaleUpTimeout)
 	as.mu.Lock()
 	return err
 }
