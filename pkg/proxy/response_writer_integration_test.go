@@ -36,8 +36,8 @@ func TestResponseWriter_StreamingXMLConversion(t *testing.T) {
 		// Create a test HTTP response recorder
 		recorder := httptest.NewRecorder()
 
-		// Create our custom response writer
-		rw := newResponseWriter(recorder, true, nil, false)
+		// Create our custom response writer (with XML parsing enabled)
+		rw := newResponseWriter(recorder, true, nil, true)
 
 		// Write chunks one by one (simulating streaming)
 		for i, chunk := range streamingChunks {
@@ -82,8 +82,8 @@ func TestResponseWriter_StreamingXMLConversion(t *testing.T) {
 		// Create a test HTTP response recorder
 		recorder := httptest.NewRecorder()
 
-		// Create our custom response writer
-		rw := newResponseWriter(recorder, true, nil, false)
+		// Create our custom response writer (with XML parsing enabled)
+		rw := newResponseWriter(recorder, true, nil, true)
 
 		// Write all chunks at once (simulating buffered write)
 		allChunks := bytes.Join([][]byte{[]byte(strings.Join(streamingChunks, ""))}, []byte{})
@@ -139,7 +139,7 @@ func TestResponseWriter_WithoutClosingTags(t *testing.T) {
 
 	t.Run("without closing tags - streaming", func(t *testing.T) {
 		recorder := httptest.NewRecorder()
-		rw := newResponseWriter(recorder, true, nil, false)
+		rw := newResponseWriter(recorder, true, nil, true)
 
 		for i, chunk := range streamingChunks {
 			_, err := rw.Write([]byte(chunk))
