@@ -83,30 +83,107 @@ func TestFromConfigMapData(t *testing.T) {
 }
 
 func TestModelConfig_Validate(t *testing.T) {
+	validConfig := &ModelConfig{
+		ModelName:              "test/model",
+		ServedModelName:        "test-model",
+		MaxModelLen:            "65536",
+		MaxNumBatchedTokens:    "4096",
+		MaxNumSeqs:             "16",
+		GPUMemoryUtilization:   "0.91",
+		Dtype:                  "float16",
+		EnableChunkedPrefill:   "true",
+		DisableCustomAllReduce: "true",
+		EnablePrefixCaching:    "true",
+		EnableAutoToolChoice:   "true",
+	}
+
 	tests := []struct {
 		name    string
 		config  *ModelConfig
 		wantErr bool
 	}{
 		{
-			name: "valid config",
-			config: &ModelConfig{
-				ModelName:       "test/model",
-				ServedModelName: "test-model",
-			},
+			name:    "valid config",
+			config:  validConfig,
 			wantErr: false,
 		},
 		{
 			name: "missing model name",
 			config: &ModelConfig{
-				ServedModelName: "test-model",
+				ServedModelName:        "test-model",
+				MaxModelLen:            "65536",
+				MaxNumBatchedTokens:    "4096",
+				MaxNumSeqs:             "16",
+				GPUMemoryUtilization:   "0.91",
+				Dtype:                  "float16",
+				EnableChunkedPrefill:   "true",
+				DisableCustomAllReduce: "true",
+				EnablePrefixCaching:    "true",
+				EnableAutoToolChoice:   "true",
 			},
 			wantErr: true,
 		},
 		{
 			name: "missing served model name",
 			config: &ModelConfig{
-				ModelName: "test/model",
+				ModelName:              "test/model",
+				MaxModelLen:            "65536",
+				MaxNumBatchedTokens:    "4096",
+				MaxNumSeqs:             "16",
+				GPUMemoryUtilization:   "0.91",
+				Dtype:                  "float16",
+				EnableChunkedPrefill:   "true",
+				DisableCustomAllReduce: "true",
+				EnablePrefixCaching:    "true",
+				EnableAutoToolChoice:   "true",
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing maxModelLen",
+			config: &ModelConfig{
+				ModelName:              "test/model",
+				ServedModelName:        "test-model",
+				MaxNumBatchedTokens:    "4096",
+				MaxNumSeqs:             "16",
+				GPUMemoryUtilization:   "0.91",
+				Dtype:                  "float16",
+				EnableChunkedPrefill:   "true",
+				DisableCustomAllReduce: "true",
+				EnablePrefixCaching:    "true",
+				EnableAutoToolChoice:   "true",
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing maxNumBatchedTokens",
+			config: &ModelConfig{
+				ModelName:              "test/model",
+				ServedModelName:        "test-model",
+				MaxModelLen:            "65536",
+				MaxNumSeqs:             "16",
+				GPUMemoryUtilization:   "0.91",
+				Dtype:                  "float16",
+				EnableChunkedPrefill:   "true",
+				DisableCustomAllReduce: "true",
+				EnablePrefixCaching:    "true",
+				EnableAutoToolChoice:   "true",
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing dtype",
+			config: &ModelConfig{
+				ModelName:              "test/model",
+				ServedModelName:        "test-model",
+				MaxModelLen:            "65536",
+				MaxNumBatchedTokens:    "4096",
+				MaxNumSeqs:             "16",
+				GPUMemoryUtilization:   "0.91",
+				EnableChunkedPrefill:   "true",
+				DisableCustomAllReduce: "true",
+				EnablePrefixCaching:    "true",
+				EnableAutoToolChoice:   "true",
 			},
 			wantErr: true,
 		},

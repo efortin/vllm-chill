@@ -122,7 +122,7 @@ spec:
   toolCallParser: "qwen3_coder"
   reasoningParser: ""
 
-  # vLLM Runtime Parameters (model-specific)
+  # vLLM Runtime Parameters (ALL REQUIRED - no defaults)
   # Note: gpuCount and cpuOffloadGB are configured at vllm-chill deployment level
   maxModelLen: 112640
   gpuMemoryUtilization: 0.91
@@ -137,21 +137,26 @@ spec:
 
 ### Model-Specific Parameters (VLLMModel CRD)
 
-The following parameters are stored in the VLLMModel CRD (model-specific):
+**All parameters below are REQUIRED** - the CRD will reject configurations missing any of these fields:
 
-- `modelName` - HuggingFace model identifier
-- `servedModelName` - Model name exposed via API
-- `maxModelLen` - Maximum sequence length
-- `maxNumBatchedTokens` - Maximum batched tokens
-- `maxNumSeqs` - Maximum number of sequences
-- `toolCallParser` - Tool call parser type
-- `reasoningParser` - Reasoning parser type (e.g., `deepseek_r1`)
-- `gpuMemoryUtilization` - GPU memory utilization (0.0-1.0)
-- `enableChunkedPrefill` - Enable chunked prefill
-- `dtype` - Data type (auto, float16, bfloat16, etc.)
-- `disableCustomAllReduce` - Disable custom all-reduce
-- `enablePrefixCaching` - Enable prefix caching
-- `enableAutoToolChoice` - Enable automatic tool choice
+#### Required Fields
+
+- `modelName` **(required)** - HuggingFace model identifier
+- `servedModelName` **(required)** - Model name exposed via API
+- `maxModelLen` **(required)** - Maximum sequence length (min: 512)
+- `maxNumBatchedTokens` **(required)** - Maximum batched tokens (min: 1)
+- `maxNumSeqs` **(required)** - Maximum number of sequences (min: 1)
+- `gpuMemoryUtilization` **(required)** - GPU memory utilization (0.1-1.0)
+- `enableChunkedPrefill` **(required)** - Enable chunked prefill (boolean)
+- `dtype` **(required)** - Data type (auto, float16, bfloat16, float32, half, float)
+- `disableCustomAllReduce` **(required)** - Disable custom all-reduce (boolean)
+- `enablePrefixCaching` **(required)** - Enable prefix caching (boolean)
+- `enableAutoToolChoice` **(required)** - Enable automatic tool choice (boolean)
+
+#### Optional Fields
+
+- `toolCallParser` - Tool call parser type (hermes, mistral, llama3_json, internlm2, qwen3_coder, granite)
+- `reasoningParser` - Reasoning parser type (deepseek_r1)
 
 ### Infrastructure Parameters (vllm-chill Config)
 
@@ -161,6 +166,18 @@ The following parameters are configured at the vllm-chill deployment level (infr
 - `cpuOffloadGB` - CPU offload in GB (via `--cpu-offload-gb` flag or `CPU_OFFLOAD_GB` env var)
 
 These are infrastructure concerns, not model-specific, so they're configured once for the deployment.
+
+### Validation
+
+The VLLMModel CRD enforces validation at two levels:
+
+1. **Kubernetes API Level (OpenAPI validation)**: When you create or update a VLLMModel, Kubernetes validates the schema. Missing required fields will be rejected immediately:
+   ```bash
+   kubectl apply -f model.yaml
+   # Error: ValidationError: spec.maxModelLen in body is required
+   ```
+
+2. **Runtime Validation**: When vllm-chill reads a VLLMModel CRD, it validates that all required fields have values. Invalid configurations will prevent pod creation with a clear error message.
 
 ## Use Cases
 
@@ -305,10 +322,13 @@ Model switches stop the current pod immediately, but the new pod takes ~60s to s
 
 If you're migrating from ConfigMap-based configuration:
 
-1. **Remove ConfigMap references**: ConfigMaps are no longer used
-2. **Update CRDs**: Ensure all parameters are in VLLMModel CRD
-3. **Set MODEL_ID**: Use CRD metadata name as MODEL_ID
-4. **Test switching**: Verify model switching works with new architecture
+1. **Remove ConfigMap references**: ConfigMaps no longer contain model-specific parameters (MAX_MODEL_LEN, MAX_NUM_BATCHED_TOKENS, etc.)
+2. **Update CRDs**: Ensure **all required parameters** are explicitly defined in each VLLMModel CRD
+3. **No fallback values**: Unlike the old ConfigMap approach, there are no default values - all fields must be explicitly set
+4. **Set MODEL_ID**: Use CRD metadata name as MODEL_ID
+5. **Test switching**: Verify model switching works with new architecture
+
+**IMPORTANT**: The ConfigMap in `manifests/kubernetes-with-model-switching.yaml` now only contains infrastructure-level configuration (GPU_COUNT, CPU_OFFLOAD_GB). All vLLM runtime parameters must be defined in the VLLMModel CRD.
 
 ## Future Enhancements
 

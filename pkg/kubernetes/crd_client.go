@@ -125,6 +125,11 @@ func (c *CRDClient) convertToModelConfig(u *unstructured.Unstructured) (*ModelCo
 
 	// Note: gpuCount and cpuOffloadGB are now infrastructure-level config, not model-level
 
+	// Validate that all mandatory fields are present
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid VLLMModel configuration: %w", err)
+	}
+
 	return config, nil
 }
 

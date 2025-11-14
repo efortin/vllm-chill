@@ -17,6 +17,15 @@ spec:
               required:
                 - modelName
                 - servedModelName
+                - maxModelLen
+                - gpuMemoryUtilization
+                - enableChunkedPrefill
+                - maxNumBatchedTokens
+                - maxNumSeqs
+                - dtype
+                - disableCustomAllReduce
+                - enablePrefixCaching
+                - enableAutoToolChoice
               properties:
                 # Model Identification
                 modelName:
@@ -47,36 +56,30 @@ spec:
                     - ""
                     - "deepseek_r1"
 
-                # vLLM Runtime Parameters
+                # vLLM Runtime Parameters (all required, no defaults)
                 maxModelLen:
                   type: integer
-                  description: "Maximum model context length"
-                  default: 32768
+                  description: "Maximum model context length (required)"
                   minimum: 512
                 gpuMemoryUtilization:
                   type: number
-                  description: "GPU memory utilization (0.0-1.0)"
-                  default: 0.90
+                  description: "GPU memory utilization (0.0-1.0, required)"
                   minimum: 0.1
                   maximum: 1.0
                 enableChunkedPrefill:
                   type: boolean
-                  description: "Enable chunked prefill"
-                  default: true
+                  description: "Enable chunked prefill (required)"
                 maxNumBatchedTokens:
                   type: integer
-                  description: "Maximum number of batched tokens"
-                  default: 4096
+                  description: "Maximum number of batched tokens (required)"
                   minimum: 1
                 maxNumSeqs:
                   type: integer
-                  description: "Maximum number of sequences"
-                  default: 16
+                  description: "Maximum number of sequences (required)"
                   minimum: 1
                 dtype:
                   type: string
-                  description: "Data type for model weights and activations"
-                  default: "auto"
+                  description: "Data type for model weights and activations (required)"
                   enum:
                     - "auto"
                     - "half"
@@ -86,16 +89,13 @@ spec:
                     - "float32"
                 disableCustomAllReduce:
                   type: boolean
-                  description: "Disable custom all-reduce"
-                  default: false
+                  description: "Disable custom all-reduce (required)"
                 enablePrefixCaching:
                   type: boolean
-                  description: "Enable prefix caching"
-                  default: true
+                  description: "Enable prefix caching (required)"
                 enableAutoToolChoice:
                   type: boolean
-                  description: "Enable auto tool choice"
-                  default: true
+                  description: "Enable auto tool choice (required)"
             status:
               type: object
               properties:
