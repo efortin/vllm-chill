@@ -1,0 +1,233 @@
+# Quick Start Guide
+
+## Prerequisites
+
+- Kubernetes cluster with kubectl access
+- RBAC permissions to create CRDs, Deployments, Services, ConfigMaps
+
+## Installation
+
+### 1. Install VLLMModel CRD
+
+```bash
+kubectl apply -f manifests/crds/vllmmodel.yaml
+```
+
+### 2. Create VLLMModel Resources
+
+Create at least one model (cluster-scoped):
+
+```bash
+# Example: Qwen3 Coder
+kubectl apply -f manifests/examples/qwen3-coder-model.yaml
+
+# Or DeepSeek R1
+kubectl apply -f manifests/examples/deepseek-r1-model.yaml
+```
+
+### 3. Deploy vllm-chill
+
+Create namespace and deploy:
+
+```bash
+# Create namespace
+kubectl create namespace vllm
+
+# Create HF token secret (if needed for private models)
+kubectl create secret generic hf-token-secret -n vllm \
+  --from-literal=token=YOUR_HF_TOKEN
+
+# Option A: Use pre-built image from Docker Hub
+kubectl apply -f manifests/kubernetes-with-model-switching.yaml
+
+# Option B: Build and push locally
+# Using Task (recommended)
+task docker:dev  # Builds and pushes :dev tag
+
+# Or using docker directly
+docker build -t docker.io/efortin/vllm-chill:latest .
+docker push docker.io/efortin/vllm-chill:latest
+
+kubectl apply -f manifests/kubernetes-with-model-switching.yaml
+```
+
+**Note:** The Docker image must be available. Either:
+- Push to `main` branch (with a tag) to trigger GitHub Actions release
+- Or build and push locally as shown above
+
+### 4. Configure Ingress (Optional)
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vllm-ingress
+  namespace: vllm
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "1800"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "1800"
+spec:
+  rules:
+    - host: <your-domain>
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vllm-chill-svc
+                port:
+                  number: 80
+```
+
+## Usage
+
+### Test the Proxy
+
+```bash
+# Port-forward to test locally
+kubectl port-forward -n vllm svc/vllm-chill-svc 8080:80
+
+# Send a request (vLLM will auto-scale from 0 to 1)
+curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3-coder-30b-fp8",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'
+```
+
+### Using with Claude Code
+
+vLLM-Chill supports the Anthropic Messages API format, allowing you to use Claude Code with your own LLM.
+
+#### Setup Shell Alias
+
+Add this alias to your `~/.zshrc` or `~/.bashrc`:
+
+```bash
+alias claudie="ANTHROPIC_BASE_URL='https://vllm.sir-alfred.io' ANTHROPIC_AUTH_TOKEN='token-abc123' ANTHROPIC_MODEL='qwen3-coder-30b-fp8' claude"
+```
+
+Replace the values with your deployment:
+- `ANTHROPIC_BASE_URL`: Your vLLM-Chill endpoint URL
+- `ANTHROPIC_AUTH_TOKEN`: Your API token (if using authentication)
+- `ANTHROPIC_MODEL`: Model ID from your VLLMModel CRD
+
+#### Usage
+
+After reloading your shell, run:
+
+```bash
+claudie
+```
+
+This will launch Claude Code using your self-hosted LLM through vLLM-Chill's Anthropic-compatible `/v1/messages` endpoint.
+
+### Monitor
+
+```bash
+# Check vllm-chill logs
+kubectl logs -n vllm -f deployment/vllm-chill
+
+# Check vLLM pod
+kubectl get pod -n vllm vllm
+
+# View proxy metrics
+kubectl port-forward -n vllm svc/vllm-chill-svc 8080:80
+curl http://localhost:8080/proxy/metrics
+
+# View vLLM metrics (when vLLM is running)
+curl http://localhost:8080/metrics
+```
+
+### Switching Models
+
+To switch models, update the `MODEL_ID` environment variable in the vllm-chill deployment:
+
+```bash
+kubectl set env deployment/vllm-chill MODEL_ID=qwen3-coder-30b-fp8 -n vllm
+```
+
+Or edit the manifest directly:
+
+```yaml
+env:
+  - name: MODEL_ID
+    value: "qwen3-coder-30b-fp8"  # Change this to switch models
+```
+
+The proxy will restart and load the new model configuration from the VLLMModel CRD.
+
+## Configuration
+
+### Environment Variables
+
+Configure vllm-chill via environment variables in the deployment:
+
+```yaml
+env:
+  - name: VLLM_NAMESPACE
+    value: "vllm"
+  - name: VLLM_DEPLOYMENT
+    value: "vllm"
+  - name: VLLM_CONFIGMAP
+    value: "vllm-config"
+  - name: MODEL_ID
+    value: "deepseek-r1-fp8"  # Model to load from VLLMModel CRD (required)
+  - name: IDLE_TIMEOUT
+    value: "20m"              # Scale to 0 after 20min idle
+  - name: MANAGED_TIMEOUT
+    value: "5m"               # Timeout for managed operations
+  - name: LOG_OUTPUT
+    value: "false"            # Log response bodies (debug only)
+```
+
+## Troubleshooting
+
+### vllm-chill won't start
+
+Check prerequisites:
+
+```bash
+# Verify CRD is installed
+kubectl get crd models.vllm.sir-alfred.io
+
+# Verify RBAC permissions
+kubectl auth can-i create deployments --namespace=vllm --as=system:serviceaccount:vllm:vllm-chill
+
+# Check logs
+kubectl logs -n vllm deployment/vllm-chill
+```
+
+### vLLM not scaling up
+
+```bash
+# Check if pod exists
+kubectl get pod -n vllm vllm
+
+# Check vllm-chill logs for errors
+kubectl logs -n vllm deployment/vllm-chill
+
+# Verify VLLMModel exists
+kubectl get models
+```
+
+### Model switch fails
+
+```bash
+# Check if model exists in CRD
+kubectl get models
+
+# Verify model name matches servedModelName in CRD
+kubectl get model qwen3-coder-30b-fp8 -o yaml
+
+# Check vllm-chill logs
+kubectl logs -n vllm deployment/vllm-chill
+```
+
+## Next Steps
+
+- See [docs/METRICS.md](docs/METRICS.md) for Prometheus metrics
+- See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design details
+- Check [manifests/examples/](manifests/examples/) for more VLLMModel examples
