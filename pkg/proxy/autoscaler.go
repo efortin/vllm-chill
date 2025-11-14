@@ -1591,14 +1591,15 @@ func transformAnthropicToOpenAI(anthropicBody map[string]interface{}) map[string
 					}
 
 					// Handle tool calls in assistant messages
-					if len(toolCalls) > 0 {
+					switch {
+					case len(toolCalls) > 0:
 						if len(textParts) > 0 {
 							openAIMsg["content"] = strings.Join(textParts, "\n")
 						} else {
 							openAIMsg["content"] = nil
 						}
 						openAIMsg["tool_calls"] = toolCalls
-					} else if len(toolResults) > 0 {
+					case len(toolResults) > 0:
 						// If we have tool results, add them as separate tool messages
 						// Add text parts first if any
 						if len(textParts) > 0 {
@@ -1609,7 +1610,7 @@ func transformAnthropicToOpenAI(anthropicBody map[string]interface{}) map[string
 						openAIMessages = append(openAIMessages, toolResults...)
 						// Skip the normal append below
 						continue
-					} else {
+					default:
 						openAIMsg["content"] = strings.Join(textParts, "\n")
 					}
 				}

@@ -135,9 +135,10 @@ func TestNoPeriodicMessageDelta(t *testing.T) {
 		if strings.HasPrefix(line, "event: ") {
 			currentEvent = strings.TrimPrefix(line, "event: ")
 		} else if strings.HasPrefix(line, "data: ") {
-			if currentEvent == "message_delta" {
+			switch currentEvent {
+			case "message_delta":
 				messageDeltaCount++
-			} else if currentEvent == "content_block_delta" {
+			case "content_block_delta":
 				contentDeltaCount++
 			}
 		}
