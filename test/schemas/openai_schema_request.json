@@ -11,14 +11,14 @@
   "top_p": number (optional),
   "max_tokens": integer (optional),
   "stop": [ "string", ... ] (optional),
-  "functions": [                         // fonction‐calling (outil) optionnel
+  "functions": [                         // function-calling (tool) optional
     {
       "name": "string",
       "description": "string",
       "parameters": { "type": "object", "properties": { … }, "required": [ … ] }
     }
   ],
-  "function_call": {                     // contrôle d’appel de fonction (outil)
+  "function_call": {                     // function call control (tool)
     "name": "string" | "auto"
   },
   "response_format": {                   // “Structured Outputs” format optionnel
