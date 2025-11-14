@@ -330,8 +330,13 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 		}()
 
 		// Extract model from request body if this is a /v1/* endpoint
+		// Skip model extraction for Anthropic requests (already handled in handleAnthropicFormatRequest)
 		if len(r.URL.Path) >= 3 && r.URL.Path[:3] == "/v1" {
-			requestedModel = as.extractModelFromRequest(r)
+			if r.Context().Value("anthropic-request") != true {
+				requestedModel = as.extractModelFromRequest(r)
+			} else {
+				log.Printf("[DEBUG] Skipping model extraction for Anthropic request (already transformed)")
+			}
 		}
 	}
 
@@ -485,29 +490,47 @@ func (as *AutoScaler) MetricsHandler(c *gin.Context) {
 // ginProxyHandler wraps the proxyHandler for Gin
 // It handles Anthropic API format transformation for Claude Code compatibility
 func (as *AutoScaler) ginProxyHandler(c *gin.Context) {
+	log.Printf("[DEBUG] ginProxyHandler called: %s %s", c.Request.Method, c.Request.URL.Path)
+
 	// Check if this is an Anthropic API request (/v1/messages)
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/messages") {
+		log.Printf("[DEBUG] Routing to Anthropic handler")
 		as.handleAnthropicFormatRequest(c)
 		return
 	}
 
 	// Fall back to original proxy handler for OpenAI format requests
+	log.Printf("[DEBUG] Routing to OpenAI proxy handler")
 	as.proxyHandler(c.Writer, c.Request)
 }
 
 // handleAnthropicFormatRequest transforms Anthropic format to OpenAI for vLLM
 func (as *AutoScaler) handleAnthropicFormatRequest(c *gin.Context) {
+	log.Printf("[DEBUG] Anthropic request: %s %s from %s", c.Request.Method, c.Request.URL.Path, c.ClientIP())
+	log.Printf("[DEBUG] Headers: Authorization=%s, x-api-key=%s, anthropic-version=%s",
+		c.GetHeader("Authorization"), c.GetHeader("x-api-key"), c.GetHeader("anthropic-version"))
+
 	// Parse Anthropic format request body
 	var anthropicBody map[string]interface{}
 	if err := c.ShouldBindJSON(&anthropicBody); err != nil {
+		log.Printf("[ERROR] Failed to parse JSON body: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid request body: %v", err)})
 		return
 	}
 
-	log.Printf("Received Anthropic format request, transforming to OpenAI format for vLLM")
+	log.Printf("[INFO] Received Anthropic format request, stream=%v", anthropicBody["stream"])
+
+	// Check if streaming is requested
+	stream, _ := anthropicBody["stream"].(bool)
 
 	// Transform Anthropic format to OpenAI format
 	openAIBody := transformAnthropicToOpenAI(anthropicBody)
+
+	// Override model with configured vLLM model (ignore Claude model names)
+	// This allows Claude Code to work directly without model name mapping
+	originalModel := openAIBody["model"]
+	openAIBody["model"] = as.config.ModelID
+	log.Printf("[DEBUG] Overriding requested model '%v' with configured model: %s", originalModel, as.config.ModelID)
 
 	// Marshal to JSON
 	openAIBytes, err := json.Marshal(openAIBody)
@@ -520,22 +543,31 @@ func (as *AutoScaler) handleAnthropicFormatRequest(c *gin.Context) {
 	// Change path from /v1/messages to /v1/chat/completions
 	newReq := c.Request.Clone(c.Request.Context())
 	newReq.URL.Path = "/v1/chat/completions"
+	log.Printf("[DEBUG] Original query string: '%s'", newReq.URL.RawQuery)
+	newReq.URL.RawQuery = "" // Clear query parameters - vLLM doesn't support beta=true from Claude Code
+	log.Printf("[DEBUG] After clearing query string: '%s'", newReq.URL.RawQuery)
 	newReq.Body = io.NopCloser(bytes.NewReader(openAIBytes))
 	newReq.ContentLength = int64(len(openAIBytes))
 
-	// Create a response recorder to capture vLLM response
-	recorder := httptest.NewRecorder()
+	// Add marker to skip model switch check in proxyHandler
+	ctx := context.WithValue(newReq.Context(), "anthropic-request", true)
+	newReq = newReq.WithContext(ctx)
 
-	// Call the existing proxy handler with transformed request
-	as.proxyHandler(recorder, newReq)
+	// Transform Anthropic auth header to OpenAI format
+	// Anthropic uses x-api-key header, OpenAI uses Authorization: Bearer
+	if apiKey := c.GetHeader("x-api-key"); apiKey != "" {
+		newReq.Header.Set("Authorization", "Bearer "+apiKey)
+		newReq.Header.Del("x-api-key")
+	}
 
-	// Check if response is streaming
-	isStreaming := strings.Contains(recorder.Header().Get("Content-Type"), "text/event-stream")
-
-	if isStreaming {
-		// Handle streaming response
-		as.transformOpenAIStreamToAnthropic(c, recorder)
+	if stream {
+		// For streaming: proxy directly without buffering to maintain real-time streaming
+		as.streamAnthropicResponse(c, newReq)
 	} else {
+		// For non-streaming: buffer and transform
+		recorder := httptest.NewRecorder()
+		as.proxyHandler(recorder, newReq)
+
 		// Transform OpenAI response to Anthropic format
 		anthropicResp, err := transformOpenAIResponseToAnthropic(recorder.Body.Bytes())
 		if err != nil {
@@ -543,15 +575,214 @@ func (as *AutoScaler) handleAnthropicFormatRequest(c *gin.Context) {
 			return
 		}
 
-		// Copy response headers from vLLM
+		// Copy selective response headers from vLLM (exclude Content-Length and Content-Type as they'll be set by c.JSON)
 		for key, values := range recorder.Header() {
+			// Skip headers that will be set by Gin's JSON response
+			if key == "Content-Length" || key == "Content-Type" {
+				continue
+			}
 			for _, value := range values {
 				c.Header(key, value)
 			}
 		}
 
-		// Send Anthropic format response
+		// Send Anthropic format response (Gin will set correct Content-Length and Content-Type)
 		c.JSON(recorder.Code, anthropicResp)
+	}
+}
+
+// streamAnthropicResponse proxies streaming requests in real-time without buffering
+func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Request) {
+	log.Printf("[DEBUG] Starting Anthropic streaming response")
+
+	// Make direct HTTP request to vLLM target
+	client := &http.Client{
+		Timeout: 0, // No timeout for streaming
+	}
+
+	// Build full URL for vLLM
+	vllmURL := fmt.Sprintf("%s%s", as.targetURL.String(), vllmReq.URL.Path)
+	if vllmReq.URL.RawQuery != "" {
+		vllmURL += "?" + vllmReq.URL.RawQuery
+	}
+
+	// Create new request to vLLM with background context (don't tie to client context)
+	req, err := http.NewRequest(vllmReq.Method, vllmURL, vllmReq.Body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create request: %v", err)})
+		return
+	}
+
+	// Copy headers
+	for key, values := range vllmReq.Header {
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
+	}
+
+	// Execute request
+	log.Printf("[DEBUG] Sending streaming request to vLLM: %s", vllmURL)
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[ERROR] Failed to proxy streaming request: %v", err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("Failed to proxy request: %v", err)})
+		return
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("Error closing response body: %v", err)
+		}
+	}()
+
+	log.Printf("[DEBUG] Received response from vLLM, status=%d, content-type=%s", resp.StatusCode, resp.Header.Get("Content-Type"))
+
+	// Set SSE headers
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Status(resp.StatusCode)
+
+	log.Printf("[DEBUG] Starting to stream events to client")
+
+	// Stream response in real-time
+	scanner := bufio.NewScanner(resp.Body)
+	messageStartSent := false
+	contentBlockStopSent := false
+	flusher, _ := c.Writer.(http.Flusher)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			// Send message_stop event
+			if _, err := fmt.Fprintf(c.Writer, "event: message_stop\ndata: {}\n\n"); err != nil {
+				log.Printf("Error writing message_stop event: %v", err)
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+			return
+		}
+
+		// Parse OpenAI chunk
+		var chunk map[string]interface{}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue
+		}
+
+		// Send message_start event on first chunk
+		if !messageStartSent {
+			startEvent := map[string]interface{}{
+				"type": "message_start",
+				"message": map[string]interface{}{
+					"id":    chunk["id"],
+					"type":  "message",
+					"role":  "assistant",
+					"model": chunk["model"],
+				},
+			}
+			startJSON, _ := json.Marshal(startEvent)
+			if _, err := fmt.Fprintf(c.Writer, "event: message_start\ndata: %s\n\n", startJSON); err != nil {
+				log.Printf("Error writing message_start event: %v", err)
+			}
+			messageStartSent = true
+
+			// Send content_block_start
+			contentBlockStart := map[string]interface{}{
+				"type":  "content_block_start",
+				"index": 0,
+				"content_block": map[string]interface{}{
+					"type": "text",
+					"text": "",
+				},
+			}
+			cbsJSON, _ := json.Marshal(contentBlockStart)
+			if _, err := fmt.Fprintf(c.Writer, "event: content_block_start\ndata: %s\n\n", cbsJSON); err != nil {
+				log.Printf("Error writing content_block_start event: %v", err)
+			}
+
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+
+		// Transform chunk to Anthropic format
+		if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
+			if choice, ok := choices[0].(map[string]interface{}); ok {
+				if delta, ok := choice["delta"].(map[string]interface{}); ok {
+					if content, ok := delta["content"].(string); ok && content != "" {
+						deltaEvent := map[string]interface{}{
+							"type":  "content_block_delta",
+							"index": 0,
+							"delta": map[string]interface{}{
+								"type": "text_delta",
+								"text": content,
+							},
+						}
+						deltaJSON, _ := json.Marshal(deltaEvent)
+						if _, err := fmt.Fprintf(c.Writer, "event: content_block_delta\ndata: %s\n\n", deltaJSON); err != nil {
+							log.Printf("Error writing content_block_delta event: %v", err)
+						}
+
+						if flusher != nil {
+							flusher.Flush()
+						}
+					}
+				}
+
+				// Check for finish
+				if finishReason, ok := choice["finish_reason"].(string); ok && finishReason != "" && !contentBlockStopSent {
+					// Send content_block_stop
+					contentBlockStop := map[string]interface{}{
+						"type":  "content_block_stop",
+						"index": 0,
+					}
+					cbstopJSON, _ := json.Marshal(contentBlockStop)
+					if _, err := fmt.Fprintf(c.Writer, "event: content_block_stop\ndata: %s\n\n", cbstopJSON); err != nil {
+						log.Printf("Error writing content_block_stop event: %v", err)
+					}
+					contentBlockStopSent = true
+
+					if flusher != nil {
+						flusher.Flush()
+					}
+				}
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Printf("Error reading stream: %v", err)
+		return
+	}
+
+	// Send final events if stream ended without [DONE]
+	if messageStartSent {
+		// Send content_block_stop if not already sent
+		if !contentBlockStopSent {
+			contentBlockStop := map[string]interface{}{
+				"type":  "content_block_stop",
+				"index": 0,
+			}
+			cbstopJSON, _ := json.Marshal(contentBlockStop)
+			if _, err := fmt.Fprintf(c.Writer, "event: content_block_stop\ndata: %s\n\n", cbstopJSON); err != nil {
+				log.Printf("Error writing final content_block_stop event: %v", err)
+			}
+		}
+
+		// Send message_stop
+		if _, err := fmt.Fprintf(c.Writer, "event: message_stop\ndata: {}\n\n"); err != nil {
+			log.Printf("Error writing final message_stop event: %v", err)
+		}
+
+		if flusher != nil {
+			flusher.Flush()
+		}
 	}
 }
 
@@ -1076,18 +1307,95 @@ func transformAnthropicToOpenAI(anthropicBody map[string]interface{}) map[string
 				if content, ok := msgMap["content"].(string); ok {
 					openAIMsg["content"] = content
 				} else if contentArray, ok := msgMap["content"].([]interface{}); ok {
-					// For complex content (images, etc), extract text parts
+					// For complex content, handle text, tool_use, and tool_result blocks
 					var textParts []string
+					var toolResults []map[string]interface{}
+					var toolCalls []map[string]interface{}
+
 					for _, part := range contentArray {
 						if partMap, ok := part.(map[string]interface{}); ok {
-							if partType, ok := partMap["type"].(string); ok && partType == "text" {
+							partType, _ := partMap["type"].(string)
+
+							switch partType {
+							case "text":
 								if text, ok := partMap["text"].(string); ok {
 									textParts = append(textParts, text)
 								}
+							case "tool_use":
+								// Convert Anthropic tool_use to OpenAI tool_calls format
+								toolCall := map[string]interface{}{
+									"type":     "function",
+									"function": map[string]interface{}{},
+								}
+								if id, ok := partMap["id"].(string); ok {
+									toolCall["id"] = id
+								}
+								fnMap := toolCall["function"].(map[string]interface{})
+								if name, ok := partMap["name"].(string); ok {
+									fnMap["name"] = name
+								}
+								if input, ok := partMap["input"].(map[string]interface{}); ok {
+									// Convert input object to JSON string for arguments
+									if argsBytes, err := json.Marshal(input); err == nil {
+										fnMap["arguments"] = string(argsBytes)
+									}
+								}
+								toolCalls = append(toolCalls, toolCall)
+							case "tool_result":
+								// Convert Anthropic tool_result to OpenAI format
+								// In OpenAI, tool results are sent as separate messages with role "tool"
+								toolResult := map[string]interface{}{
+									"role": "tool",
+								}
+								if toolUseID, ok := partMap["tool_use_id"].(string); ok {
+									toolResult["tool_call_id"] = toolUseID
+								}
+								// Get content from tool_result
+								if resultContent, ok := partMap["content"].(string); ok {
+									toolResult["content"] = resultContent
+								} else if resultContentArray, ok := partMap["content"].([]interface{}); ok {
+									// Handle array content
+									var resultTexts []string
+									for _, rc := range resultContentArray {
+										if rcMap, ok := rc.(map[string]interface{}); ok {
+											if rcType, _ := rcMap["type"].(string); rcType == "text" {
+												if rcText, ok := rcMap["text"].(string); ok {
+													resultTexts = append(resultTexts, rcText)
+												}
+											}
+										}
+									}
+									toolResult["content"] = strings.Join(resultTexts, "\n")
+								}
+								toolResults = append(toolResults, toolResult)
 							}
 						}
 					}
-					openAIMsg["content"] = strings.Join(textParts, "\n")
+
+					// Handle tool calls in assistant messages
+					if len(toolCalls) > 0 {
+						if len(textParts) > 0 {
+							openAIMsg["content"] = strings.Join(textParts, "\n")
+						} else {
+							openAIMsg["content"] = nil
+						}
+						openAIMsg["tool_calls"] = toolCalls
+					} else if len(toolResults) > 0 {
+						// If we have tool results, add them as separate tool messages
+						// Add text parts first if any
+						if len(textParts) > 0 {
+							openAIMsg["content"] = strings.Join(textParts, "\n")
+							openAIMessages = append(openAIMessages, openAIMsg)
+						}
+						// Add tool result messages
+						for _, toolResult := range toolResults {
+							openAIMessages = append(openAIMessages, toolResult)
+						}
+						// Skip the normal append below
+						continue
+					} else {
+						openAIMsg["content"] = strings.Join(textParts, "\n")
+					}
 				}
 
 				openAIMessages = append(openAIMessages, openAIMsg)
@@ -1116,42 +1424,51 @@ func transformAnthropicToOpenAI(anthropicBody map[string]interface{}) map[string
 		openAIBody["stop"] = stopSeqs
 	}
 
-	// Transform tools to functions (for tool calling support)
+	// Transform tools to OpenAI tools format (vLLM supports this)
 	if tools, ok := anthropicBody["tools"].([]interface{}); ok {
-		functions := make([]map[string]interface{}, 0, len(tools))
+		openAITools := make([]map[string]interface{}, 0, len(tools))
 		for _, tool := range tools {
 			if toolMap, ok := tool.(map[string]interface{}); ok {
-				fn := make(map[string]interface{})
+				// OpenAI tools format wraps each tool in a "function" object
+				openAITool := map[string]interface{}{
+					"type":     "function",
+					"function": map[string]interface{}{},
+				}
+				fnMap := openAITool["function"].(map[string]interface{})
+
 				if name, ok := toolMap["name"].(string); ok {
-					fn["name"] = name
+					fnMap["name"] = name
 				}
 				if desc, ok := toolMap["description"].(string); ok {
-					fn["description"] = desc
+					fnMap["description"] = desc
 				}
 				// Transform input_schema to parameters
 				if schema, ok := toolMap["input_schema"].(map[string]interface{}); ok {
-					fn["parameters"] = schema
+					fnMap["parameters"] = schema
 				}
-				functions = append(functions, fn)
+				openAITools = append(openAITools, openAITool)
 			}
 		}
-		if len(functions) > 0 {
-			openAIBody["functions"] = functions
+		if len(openAITools) > 0 {
+			openAIBody["tools"] = openAITools
 		}
 	}
 
-	// Transform tool_choice to function_call
+	// Transform tool_choice to OpenAI format
 	if toolChoice, ok := anthropicBody["tool_choice"].(map[string]interface{}); ok {
 		if choiceType, ok := toolChoice["type"].(string); ok {
 			switch choiceType {
 			case "auto":
-				openAIBody["function_call"] = "auto"
+				openAIBody["tool_choice"] = "auto"
 			case "any":
-				openAIBody["function_call"] = "auto" // OpenAI doesn't have "any", use "auto"
+				openAIBody["tool_choice"] = "required" // OpenAI's equivalent of "any"
 			case "tool":
 				if toolName, ok := toolChoice["name"].(string); ok {
-					openAIBody["function_call"] = map[string]interface{}{
-						"name": toolName,
+					openAIBody["tool_choice"] = map[string]interface{}{
+						"type": "function",
+						"function": map[string]interface{}{
+							"name": toolName,
+						},
 					}
 				}
 			}
@@ -1195,11 +1512,42 @@ func transformOpenAIResponseToAnthropic(openAIBytes []byte) (map[string]interfac
 					})
 				}
 
-				// Handle function_call → tool_use transformation
+				// Handle modern tool_calls array (OpenAI tools format)
+				if toolCalls, ok := message["tool_calls"].([]interface{}); ok {
+					for i, tc := range toolCalls {
+						if toolCall, ok := tc.(map[string]interface{}); ok {
+							toolUseBlock := map[string]interface{}{
+								"type": "tool_use",
+								"id":   fmt.Sprintf("toolu_%s_%d", openAIResp["id"], i),
+							}
+
+							// Extract function from tool call
+							if function, ok := toolCall["function"].(map[string]interface{}); ok {
+								if name, ok := function["name"].(string); ok {
+									toolUseBlock["name"] = name
+								}
+
+								// Parse arguments JSON string to object
+								if argsStr, ok := function["arguments"].(string); ok {
+									var argsObj map[string]interface{}
+									if err := json.Unmarshal([]byte(argsStr), &argsObj); err == nil {
+										toolUseBlock["input"] = argsObj
+									} else {
+										toolUseBlock["input"] = map[string]interface{}{}
+									}
+								}
+							}
+
+							contentBlocks = append(contentBlocks, toolUseBlock)
+						}
+					}
+				}
+
+				// Handle legacy function_call (for backwards compatibility)
 				if functionCall, ok := message["function_call"].(map[string]interface{}); ok {
 					toolUseBlock := map[string]interface{}{
 						"type": "tool_use",
-						"id":   fmt.Sprintf("toolu_%s", openAIResp["id"]), // Generate tool use ID
+						"id":   fmt.Sprintf("toolu_%s", openAIResp["id"]),
 					}
 
 					if name, ok := functionCall["name"].(string); ok {
@@ -1212,7 +1560,6 @@ func transformOpenAIResponseToAnthropic(openAIBytes []byte) (map[string]interfac
 						if err := json.Unmarshal([]byte(argsStr), &argsObj); err == nil {
 							toolUseBlock["input"] = argsObj
 						} else {
-							// If parsing fails, use empty object
 							toolUseBlock["input"] = map[string]interface{}{}
 						}
 					}
@@ -1232,7 +1579,7 @@ func transformOpenAIResponseToAnthropic(openAIBytes []byte) (map[string]interfac
 					}
 				case "length":
 					anthropicResp["stop_reason"] = "max_tokens"
-				case "function_call":
+				case "function_call", "tool_calls":
 					anthropicResp["stop_reason"] = "tool_use"
 				default:
 					anthropicResp["stop_reason"] = finishReason
@@ -1257,125 +1604,4 @@ func transformOpenAIResponseToAnthropic(openAIBytes []byte) (map[string]interfac
 	}
 
 	return anthropicResp, nil
-}
-
-// transformOpenAIStreamToAnthropic transforms OpenAI streaming response to Anthropic format
-func (as *AutoScaler) transformOpenAIStreamToAnthropic(c *gin.Context, recorder *httptest.ResponseRecorder) {
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Status(200)
-
-	c.Stream(func(w io.Writer) bool {
-		// Read the OpenAI stream from recorder
-		scanner := bufio.NewScanner(recorder.Body)
-		messageStartSent := false
-
-		for scanner.Scan() {
-			line := scanner.Text()
-
-			if !strings.HasPrefix(line, "data: ") {
-				continue
-			}
-
-			data := strings.TrimPrefix(line, "data: ")
-			if data == "[DONE]" {
-				// Send message_stop event
-				if _, err := fmt.Fprintf(w, "event: message_stop\ndata: {}\n\n"); err != nil {
-					log.Printf("Error writing message_stop event: %v", err)
-				}
-				if f, ok := w.(http.Flusher); ok {
-					f.Flush()
-				}
-				return false
-			}
-
-			// Parse OpenAI chunk
-			var chunk map[string]interface{}
-			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-				continue
-			}
-
-			// Send message_start event on first chunk
-			if !messageStartSent {
-				startEvent := map[string]interface{}{
-					"type": "message_start",
-					"message": map[string]interface{}{
-						"id":    chunk["id"],
-						"type":  "message",
-						"role":  "assistant",
-						"model": chunk["model"],
-					},
-				}
-				startJSON, _ := json.Marshal(startEvent)
-				if _, err := fmt.Fprintf(w, "event: message_start\ndata: %s\n\n", startJSON); err != nil {
-					log.Printf("Error writing message_start event: %v", err)
-				}
-				messageStartSent = true
-
-				// Send content_block_start
-				contentBlockStart := map[string]interface{}{
-					"type":  "content_block_start",
-					"index": 0,
-					"content_block": map[string]interface{}{
-						"type": "text",
-						"text": "",
-					},
-				}
-				cbsJSON, _ := json.Marshal(contentBlockStart)
-				if _, err := fmt.Fprintf(w, "event: content_block_start\ndata: %s\n\n", cbsJSON); err != nil {
-					log.Printf("Error writing content_block_start event: %v", err)
-				}
-
-				if f, ok := w.(http.Flusher); ok {
-					f.Flush()
-				}
-			}
-
-			// Transform chunk to Anthropic format
-			if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
-				if choice, ok := choices[0].(map[string]interface{}); ok {
-					if delta, ok := choice["delta"].(map[string]interface{}); ok {
-						if content, ok := delta["content"].(string); ok && content != "" {
-							deltaEvent := map[string]interface{}{
-								"type":  "content_block_delta",
-								"index": 0,
-								"delta": map[string]interface{}{
-									"type": "text_delta",
-									"text": content,
-								},
-							}
-							deltaJSON, _ := json.Marshal(deltaEvent)
-							if _, err := fmt.Fprintf(w, "event: content_block_delta\ndata: %s\n\n", deltaJSON); err != nil {
-								log.Printf("Error writing content_block_delta event: %v", err)
-							}
-
-							if f, ok := w.(http.Flusher); ok {
-								f.Flush()
-							}
-						}
-					}
-
-					// Check for finish
-					if finishReason, ok := choice["finish_reason"].(string); ok && finishReason != "" {
-						// Send content_block_stop
-						contentBlockStop := map[string]interface{}{
-							"type":  "content_block_stop",
-							"index": 0,
-						}
-						cbstopJSON, _ := json.Marshal(contentBlockStop)
-						if _, err := fmt.Fprintf(w, "event: content_block_stop\ndata: %s\n\n", cbstopJSON); err != nil {
-							log.Printf("Error writing content_block_stop event: %v", err)
-						}
-
-						if f, ok := w.(http.Flusher); ok {
-							f.Flush()
-						}
-					}
-				}
-			}
-		}
-
-		return false
-	})
 }
