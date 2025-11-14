@@ -650,7 +650,20 @@ func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Requ
 	contentBlockStopSent := false
 	flusher, _ := c.Writer.(http.Flusher)
 	chunkCount := 0
-	const usageUpdateInterval = 10 // Send usage update every N chunks
+	contentBlockIndex := 0 // Track content block index (text=0, tool calls start at 1)
+
+	// Track tool call state for streaming transformation
+	type toolCallState struct {
+		id              string
+		name            string
+		args            strings.Builder
+		index           int // OpenAI tool call index (0, 1, 2...)
+		contentBlockIdx int // Anthropic content block index (1, 2, 3... since 0 is text)
+		started         bool
+		finished        bool
+	}
+	toolCallStates := make(map[int]*toolCallState)
+	hasToolCalls := false
 
 	// Track tokens for accurate counting using tiktoken
 	// Extract model from first chunk or use default
@@ -693,10 +706,17 @@ func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Requ
 			usageData := tokenTracker.GetUsage()
 			log.Printf("[DEBUG] Final usage at [DONE]: input=%v, output=%v", usageData["input_tokens"], usageData["output_tokens"])
 
+			// Determine stop_reason based on whether we have tool calls
+			stopReason := "end_turn"
+			if hasToolCalls {
+				stopReason = "tool_use"
+				log.Printf("[TOOL-CALLS] Setting stop_reason to tool_use (%d tool calls)", len(toolCallStates))
+			}
+
 			messageDelta := map[string]interface{}{
 				"type": "message_delta",
 				"delta": map[string]interface{}{
-					"stop_reason": "end_turn",
+					"stop_reason": stopReason,
 				},
 				"usage": map[string]interface{}{
 					"input_tokens":  usageData["input_tokens"],
@@ -733,10 +753,15 @@ func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Requ
 			startEvent := map[string]interface{}{
 				"type": "message_start",
 				"message": map[string]interface{}{
-					"id":    chunk["id"],
-					"type":  "message",
-					"role":  "assistant",
-					"model": chunk["model"],
+					"id":      chunk["id"],
+					"type":    "message",
+					"role":    "assistant",
+					"content": []interface{}{},
+					"model":   chunk["model"],
+					"usage": map[string]interface{}{
+						"input_tokens":  0,
+						"output_tokens": 0,
+					},
 				},
 			}
 			startJSON, _ := json.Marshal(startEvent)
@@ -786,41 +811,130 @@ func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Requ
 							log.Printf("Error writing content_block_delta event: %v", err)
 						}
 
-						// Send periodic usage updates (cumulative)
-						// NOTE: Claude Code counts tokens client-side and ignores server values
-						// We still send them for API compliance and potential future use
-						if chunkCount%usageUpdateInterval == 0 {
-							usageData := tokenTracker.GetUsage()
-							messageDeltaUsage := map[string]interface{}{
-								"type": "message_delta",
-								"usage": map[string]interface{}{
-									"input_tokens":  usageData["input_tokens"],
-									"output_tokens": usageData["output_tokens"],
-								},
-							}
-							usageJSON, _ := json.Marshal(messageDeltaUsage)
-							if _, err := fmt.Fprintf(c.Writer, "event: message_delta\ndata: %s\n\n", usageJSON); err != nil {
-								log.Printf("Error writing periodic message_delta: %v", err)
-							}
-							log.Printf("[DEBUG] Sent periodic usage update: input=%v, output=%v", usageData["input_tokens"], usageData["output_tokens"])
-						}
+						// NOTE: Do NOT send message_delta with usage during streaming
+						// Claude Code will terminate prematurely if it receives message_delta before [DONE]
+						// Only send message_delta at [DONE] with final usage counts
 
 						if flusher != nil {
 							flusher.Flush()
+						}
+					}
+
+					// Handle tool_calls (OpenAI format → Anthropic tool_use format)
+					if toolCalls, ok := delta["tool_calls"].([]interface{}); ok && len(toolCalls) > 0 {
+						hasToolCalls = true
+
+						for _, tc := range toolCalls {
+							toolCall, ok := tc.(map[string]interface{})
+							if !ok {
+								continue
+							}
+
+							// Get tool call index
+							tcIndex, ok := toolCall["index"].(float64)
+							if !ok {
+								continue
+							}
+							index := int(tcIndex)
+
+							// Get or create tool call state
+							state, exists := toolCallStates[index]
+							if !exists {
+								state = &toolCallState{
+									index: index,
+								}
+								toolCallStates[index] = state
+							}
+
+							// Get tool call ID (sent in first chunk)
+							if id, ok := toolCall["id"].(string); ok && id != "" {
+								state.id = id
+							}
+
+							// Get function details
+							if fn, ok := toolCall["function"].(map[string]interface{}); ok {
+								// Get function name (sent in first chunk)
+								if name, ok := fn["name"].(string); ok && name != "" {
+									state.name = name
+
+									// Send content_block_start for this tool call
+									if !state.started {
+										contentBlockIndex++
+										state.contentBlockIdx = contentBlockIndex // Store for later use
+										blockStart := map[string]interface{}{
+											"type":  "content_block_start",
+											"index": state.contentBlockIdx,
+											"content_block": map[string]interface{}{
+												"type": "tool_use",
+												"id":   state.id,
+												"name": state.name,
+											},
+										}
+										blockStartJSON, _ := json.Marshal(blockStart)
+										if _, err := fmt.Fprintf(c.Writer, "event: content_block_start\ndata: %s\n\n", blockStartJSON); err != nil {
+											log.Printf("Error writing tool_use content_block_start: %v", err)
+										}
+										state.started = true
+										log.Printf("[TOOL-CALLS] Started tool_use block: index=%d, name=%s, id=%s", state.contentBlockIdx, state.name, state.id)
+									}
+								}
+
+								// Get function arguments (streamed incrementally)
+								if args, ok := fn["arguments"].(string); ok && args != "" {
+									state.args.WriteString(args)
+
+									// Send input_json_delta
+									deltaEvent := map[string]interface{}{
+										"type":  "content_block_delta",
+										"index": state.contentBlockIdx,
+										"delta": map[string]interface{}{
+											"type":         "input_json_delta",
+											"partial_json": args,
+										},
+									}
+									deltaJSON, _ := json.Marshal(deltaEvent)
+									if _, err := fmt.Fprintf(c.Writer, "event: content_block_delta\ndata: %s\n\n", deltaJSON); err != nil {
+										log.Printf("Error writing input_json_delta: %v", err)
+									}
+								}
+							}
+
+							if flusher != nil {
+								flusher.Flush()
+							}
 						}
 					}
 				}
 
 				// Check for finish
 				if finishReason, ok := choice["finish_reason"].(string); ok && finishReason != "" && !contentBlockStopSent {
-					// First send content_block_stop
-					contentBlockStop := map[string]interface{}{
-						"type":  "content_block_stop",
-						"index": 0,
-					}
-					cbstopJSON, _ := json.Marshal(contentBlockStop)
-					if _, err := fmt.Fprintf(c.Writer, "event: content_block_stop\ndata: %s\n\n", cbstopJSON); err != nil {
-						log.Printf("Error writing content_block_stop event: %v", err)
+					// Handle finish differently based on type
+					if finishReason == "tool_calls" {
+						// Send content_block_stop for each tool call
+						log.Printf("[TOOL-CALLS] Finishing with %d tool calls", len(toolCallStates))
+						for i := 0; i < len(toolCallStates); i++ {
+							if state, ok := toolCallStates[i]; ok && state.started {
+								contentBlockStop := map[string]interface{}{
+									"type":  "content_block_stop",
+									"index": state.contentBlockIdx,
+								}
+								cbstopJSON, _ := json.Marshal(contentBlockStop)
+								if _, err := fmt.Fprintf(c.Writer, "event: content_block_stop\ndata: %s\n\n", cbstopJSON); err != nil {
+									log.Printf("Error writing tool_use content_block_stop: %v", err)
+								}
+								log.Printf("[TOOL-CALLS] Stopped tool_use block: index=%d, name=%s", state.contentBlockIdx, state.name)
+							}
+						}
+					} else {
+						// Normal text finish - send content_block_stop for index 0
+						contentBlockStop := map[string]interface{}{
+							"type":  "content_block_stop",
+							"index": 0,
+						}
+						cbstopJSON, _ := json.Marshal(contentBlockStop)
+						if _, err := fmt.Fprintf(c.Writer, "event: content_block_stop\ndata: %s\n\n", cbstopJSON); err != nil {
+							log.Printf("Error writing content_block_stop event: %v", err)
+						}
 					}
 					contentBlockStopSent = true
 
