@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/efortin/vllm-chill/pkg/kubernetes"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 )
@@ -16,7 +17,7 @@ type MockManager struct {
 	activeModel string
 	isRunning   bool
 	models      []ModelInfo
-	modelConfig *Config
+	modelConfig *kubernetes.ModelConfig
 	listErr     error
 	configErr   error
 	switchErr   error
@@ -26,7 +27,7 @@ func (m *MockManager) GetActiveModel() string {
 	return m.activeModel
 }
 
-func (m *MockManager) SwitchModel(_ context.Context, modelID string) error {
+func (m *MockManager) SwitchModel(ctx context.Context, modelID string) error {
 	if m.switchErr != nil {
 		return m.switchErr
 	}
@@ -34,14 +35,14 @@ func (m *MockManager) SwitchModel(_ context.Context, modelID string) error {
 	return nil
 }
 
-func (m *MockManager) GetModelConfig(_ context.Context, _ string) (*Config, error) {
+func (m *MockManager) GetModelConfig(ctx context.Context, modelID string) (*kubernetes.ModelConfig, error) {
 	if m.configErr != nil {
 		return nil, m.configErr
 	}
 	return m.modelConfig, nil
 }
 
-func (m *MockManager) ListModels(_ context.Context) ([]ModelInfo, error) {
+func (m *MockManager) ListModels(ctx context.Context) ([]ModelInfo, error) {
 	if m.listErr != nil {
 		return nil, m.listErr
 	}
@@ -117,7 +118,7 @@ func TestHandler_RunningHandler(t *testing.T) {
 		name           string
 		activeModel    string
 		isRunning      bool
-		modelConfig    *Config
+		modelConfig    *kubernetes.ModelConfig
 		configErr      error
 		expectedStatus int
 	}{
@@ -125,7 +126,7 @@ func TestHandler_RunningHandler(t *testing.T) {
 			name:        "successful running model",
 			activeModel: "test-model",
 			isRunning:   true,
-			modelConfig: &Config{
+			modelConfig: &kubernetes.ModelConfig{
 				ModelName:       "test/model",
 				ServedModelName: "test-model",
 				MaxModelLen:     "4096",
@@ -147,7 +148,7 @@ func TestHandler_RunningHandler(t *testing.T) {
 			name:        "model not running",
 			activeModel: "",
 			isRunning:   false,
-			modelConfig: &Config{
+			modelConfig: &kubernetes.ModelConfig{
 				ModelName:       "test/model",
 				ServedModelName: "",
 			},

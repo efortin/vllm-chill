@@ -4,12 +4,11 @@ import (
 	"testing"
 
 	"github.com/efortin/vllm-chill/pkg/apis/vllm/v1alpha1"
-	"github.com/efortin/vllm-chill/pkg/models"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 func TestModelNotFoundError(t *testing.T) {
-	err := &models.NotFoundError{RequestedModel: "test-model"}
+	err := &ModelNotFoundError{ModelID: "test-model"}
 	expectedMsg := "model 'test-model' not found"
 	if err.Error() != expectedMsg {
 		t.Errorf("Error() = %v, want %v", err.Error(), expectedMsg)
@@ -20,7 +19,7 @@ func TestCRDClient_ConvertToModelConfig(t *testing.T) {
 	tests := []struct {
 		name    string
 		obj     *unstructured.Unstructured
-		want    *models.Config
+		want    *ModelConfig
 		wantErr bool
 	}{
 		{
@@ -51,7 +50,7 @@ func TestCRDClient_ConvertToModelConfig(t *testing.T) {
 					},
 				},
 			},
-			want: &models.Config{
+			want: &ModelConfig{
 				ModelName:              "test/model",
 				ServedModelName:        "test-model",
 				ToolCallParser:         "hermes",
