@@ -1158,6 +1158,12 @@ func transformAnthropicToOpenAI(anthropicBody map[string]interface{}) map[string
 		}
 	}
 
+	// Handle metadata (optional tracking field)
+	// Anthropic's metadata is for request tracking/logging, not passed to model
+	// vLLM doesn't support it, and it's not returned in responses
+	// We simply acknowledge its presence without forwarding it
+	// Metadata, if present, is not forwarded to vLLM as it's not model-related
+
 	return openAIBody
 }
 
@@ -1173,6 +1179,7 @@ func transformOpenAIResponseToAnthropic(openAIBytes []byte) (map[string]interfac
 	anthropicResp["type"] = "message"
 	anthropicResp["role"] = "assistant"
 	anthropicResp["model"] = openAIResp["model"]
+	anthropicResp["stop_sequence"] = nil // Default to null, may be overwritten
 
 	// Extract content from choices
 	contentBlocks := make([]map[string]interface{}, 0)
@@ -1219,6 +1226,10 @@ func transformOpenAIResponseToAnthropic(openAIBytes []byte) (map[string]interfac
 				switch finishReason {
 				case "stop":
 					anthropicResp["stop_reason"] = "end_turn"
+					// Check if a specific stop sequence was used
+					if stopSeq, ok := choice["stop_sequence"].(string); ok && stopSeq != "" {
+						anthropicResp["stop_sequence"] = stopSeq
+					}
 				case "length":
 					anthropicResp["stop_reason"] = "max_tokens"
 				case "function_call":
