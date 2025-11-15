@@ -1279,10 +1279,6 @@ func (as *AutoScaler) Run() error {
 		// Metrics endpoint - combines vLLM metrics + proxy metrics
 		proxyGroup.GET("/metrics", as.MetricsHandler)
 		proxyGroup.GET("/version", as.versionHandler)
-
-		// GPU stats endpoint
-		gpuStatsHandler := stats.NewGinGPUStatsHandler()
-		proxyGroup.GET("/stats", gpuStatsHandler.Handler)
 	}
 
 	// Default proxy handler for all other routes

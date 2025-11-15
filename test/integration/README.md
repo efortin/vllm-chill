@@ -51,7 +51,6 @@ This generates a combined coverage report including:
 The integration tests cover:
 
 ### Proxy Functionality
-- ✅ Proxy stats endpoint (`/proxy/stats`)
 - ✅ Metrics endpoint (`/metrics`)
 - ✅ Activity tracking
 
@@ -124,7 +123,7 @@ kubectl port-forward -n vllm vllm-test-pod 8080:8080 --context k3d-vllm-test
 
 Then test endpoints manually:
 ```bash
-curl http://localhost:8080/proxy/stats
+curl http://localhost:8080/proxy/version
 curl http://localhost:8080/v1/models
 ```
 
