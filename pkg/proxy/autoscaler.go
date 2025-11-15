@@ -528,22 +528,11 @@ func (as *AutoScaler) handleAnthropicFormatRequest(c *gin.Context) {
 	// Check if streaming is requested
 	stream, _ := anthropicBody["stream"].(bool)
 
-	// Check message count and return error if too large
-	// Let Claude Code handle context management (via /clear, etc.)
-	if messages, ok := anthropicBody["messages"].([]interface{}); ok {
-		const maxMessages = 100 // Warning threshold
-		if len(messages) > maxMessages {
-			log.Printf("[WARN] Context too large: %d messages (max recommended: %d)", len(messages), maxMessages)
-			c.JSON(http.StatusBadRequest, gin.H{
-				"type": "error",
-				"error": gin.H{
-					"type":    "invalid_request_error",
-					"message": fmt.Sprintf("Too many messages in conversation (%d messages). Please use /clear to reset context or start a new conversation.", len(messages)),
-				},
-			})
-			return
-		}
-	}
+	// Let Claude Code handle auto-compact naturally:
+	// - When context approaches 95% (per Claude Code docs), it auto-compacts
+	// - If vLLM returns "context too large" error, we forward it to Claude Code
+	// - Claude Code will then trigger its built-in auto-compact mechanism
+	// This is the native integration approach - no proxy-level intervention needed
 
 	// Transform Anthropic format to OpenAI format
 	openAIBody := transformAnthropicToOpenAI(anthropicBody)
@@ -554,10 +543,11 @@ func (as *AutoScaler) handleAnthropicFormatRequest(c *gin.Context) {
 	openAIBody["model"] = as.config.ModelID
 	log.Printf("[DEBUG] Overriding requested model '%v' with configured model: %s", originalModel, as.config.ModelID)
 
-	// Don't cap max_tokens - let vLLM handle limits naturally
-	// If context overflows, vLLM will return a proper error that we forward to Claude Code
-	// Claude Code can then decide to compact context or reduce output length
-	// With message pruning (50 messages max), most requests will succeed
+	// Native Claude Code integration: Don't cap max_tokens
+	// - Forward Claude Code's requests as-is to vLLM
+	// - If vLLM hits context limits, it returns proper error
+	// - Claude Code detects this and triggers auto-compact at ~95% context usage
+	// - This allows Claude Code's built-in context management to work naturally
 	log.Printf("[DEBUG] Forwarding max_tokens: %v", openAIBody["max_tokens"])
 
 	// Marshal to JSON
