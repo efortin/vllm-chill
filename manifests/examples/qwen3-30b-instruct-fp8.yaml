@@ -1,24 +1,25 @@
 apiVersion: vllm.sir-alfred.io/v1alpha1
 kind: VLLMModel
 metadata:
-  name: qwen3-coder-30b-fp8
+  name: qwen3-30b-instruct-fp8
 spec:
   # Model Identification
-  modelName: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
-  servedModelName: "qwen3-coder-30b-fp8"
-  
+  modelName: "Qwen/Qwen3-30B-Instruct"
+  servedModelName: "qwen3-30b-instruct-fp8"
+
   # Parsing Configuration
   toolCallParser: "qwen3_coder"
   reasoningParser: ""
 
   # vLLM Runtime Parameters (model-specific)
   # Note: GPU count and CPU offload are configured at vllm-chill deployment level (GPU_COUNT and CPU_OFFLOAD_GB env vars)
-  maxModelLen: 112640
-  gpuMemoryUtilization: 0.91
+  # Optimized for ~1.2 GiB KV cache availability
+  maxModelLen: 32768
+  gpuMemoryUtilization: 0.98
   enableChunkedPrefill: true
-  maxNumBatchedTokens: 32768
-  maxNumSeqs: 4
-  dtype: "float16"
+  maxNumBatchedTokens: 8192
+  maxNumSeqs: 16
+  dtype: "auto"
   disableCustomAllReduce: true
   enablePrefixCaching: true
   enableAutoToolChoice: true
