@@ -227,7 +227,12 @@ func (m *K8sManager) VerifyPodConfig(ctx context.Context, modelConfig *ModelConf
 func argsToMap(args []string) map[string]string {
 	m := make(map[string]string)
 	for i := 0; i < len(args); i++ {
-		if args[i][0] == '-' && i+1 < len(args) && args[i+1][0] != '-' {
+		// Skip empty strings to prevent panic
+		if len(args[i]) == 0 {
+			continue
+		}
+
+		if args[i][0] == '-' && i+1 < len(args) && len(args[i+1]) > 0 && args[i+1][0] != '-' {
 			m[args[i]] = args[i+1]
 			i++ // Skip next arg as it's the value
 		} else if args[i][0] == '-' {
