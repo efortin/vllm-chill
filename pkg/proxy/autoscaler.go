@@ -563,18 +563,11 @@ func (as *AutoScaler) handleAnthropicFormatRequest(c *gin.Context) {
 	openAIBody["model"] = as.config.ModelID
 	log.Printf("[DEBUG] Overriding requested model '%v' with configured model: %s", originalModel, as.config.ModelID)
 
-	// Cap max_tokens to prevent context length errors
-	// Use 16K for better support of long code generation tasks
-	// Note: vLLM's --max-num-batched-tokens=8192 is for internal batching,
-	// not individual request limits. With message pruning (50 messages max),
-	// 16K output tokens leaves plenty of room within the 112K context window
-	const maxAllowedTokens = 16384
-	if maxTokens, ok := openAIBody["max_tokens"].(float64); ok {
-		if maxTokens > maxAllowedTokens {
-			log.Printf("[DEBUG] Capping max_tokens from %.0f to %d to prevent context overflow", maxTokens, maxAllowedTokens)
-			openAIBody["max_tokens"] = maxAllowedTokens
-		}
-	}
+	// Don't cap max_tokens - let vLLM handle limits naturally
+	// If context overflows, vLLM will return a proper error that we forward to Claude Code
+	// Claude Code can then decide to compact context or reduce output length
+	// With message pruning (50 messages max), most requests will succeed
+	log.Printf("[DEBUG] Forwarding max_tokens: %v", openAIBody["max_tokens"])
 
 	// Marshal to JSON
 	openAIBytes, err := json.Marshal(openAIBody)
