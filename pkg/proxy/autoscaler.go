@@ -611,17 +611,32 @@ func (as *AutoScaler) handleAnthropicFormatRequest(c *gin.Context) {
 			// Try to parse error response
 			var errorJSON map[string]interface{}
 			if err := json.Unmarshal(recorder.Body.Bytes(), &errorJSON); err == nil {
-				// Return vLLM error in Anthropic format
+				// Transform OpenAI error format to Anthropic format
+				message := "Unknown error"
+				errorType := "api_error"
+
+				if msg, ok := errorJSON["message"].(string); ok {
+					message = msg
+				}
+				if typ, ok := errorJSON["type"].(string); ok {
+					errorType = typ
+				}
+
 				c.JSON(recorder.Code, gin.H{
-					"type":  "error",
-					"error": errorJSON,
+					"type": "error",
+					"error": gin.H{
+						"type":    errorType,
+						"message": message,
+					},
 				})
 			} else {
-				// Return raw error
+				// Return raw error in Anthropic format
 				c.JSON(recorder.Code, gin.H{
-					"type":    "error",
-					"error":   recorder.Body.String(),
-					"message": recorder.Body.String(),
+					"type": "error",
+					"error": gin.H{
+						"type":    "api_error",
+						"message": recorder.Body.String(),
+					},
 				})
 			}
 			return
@@ -709,17 +724,34 @@ func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Requ
 		// Try to parse as JSON error
 		var errorJSON map[string]interface{}
 		if err := json.Unmarshal(errorBody, &errorJSON); err == nil {
-			// Return vLLM error in Anthropic format
+			// Transform OpenAI error format to Anthropic format
+			// OpenAI: {"message": "...", "type": "...", "code": "..."}
+			// Anthropic: {"type": "error", "error": {"type": "...", "message": "..."}}
+			message := "Unknown error"
+			errorType := "api_error"
+
+			if msg, ok := errorJSON["message"].(string); ok {
+				message = msg
+			}
+			if typ, ok := errorJSON["type"].(string); ok {
+				errorType = typ
+			}
+
 			c.JSON(resp.StatusCode, gin.H{
-				"type":  "error",
-				"error": errorJSON,
+				"type": "error",
+				"error": gin.H{
+					"type":    errorType,
+					"message": message,
+				},
 			})
 		} else {
-			// Return raw error
+			// Return raw error in Anthropic format
 			c.JSON(resp.StatusCode, gin.H{
-				"type":    "error",
-				"error":   string(errorBody),
-				"message": string(errorBody),
+				"type": "error",
+				"error": gin.H{
+					"type":    "api_error",
+					"message": string(errorBody),
+				},
 			})
 		}
 		return
