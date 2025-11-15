@@ -93,6 +93,12 @@ func (c *CRDClient) convertToModelConfig(u *unstructured.Unstructured) (*ModelCo
 	if reasoningParser, found, _ := unstructured.NestedString(spec, "reasoningParser"); found {
 		config.ReasoningParser = reasoningParser
 	}
+	if chatTemplate, found, _ := unstructured.NestedString(spec, "chatTemplate"); found {
+		config.ChatTemplate = chatTemplate
+	}
+	if tokenizerMode, found, _ := unstructured.NestedString(spec, "tokenizerMode"); found {
+		config.TokenizerMode = tokenizerMode
+	}
 
 	// vLLM runtime parameters (model-specific only)
 	if maxModelLen, found, _ := unstructured.NestedInt64(spec, "maxModelLen"); found {

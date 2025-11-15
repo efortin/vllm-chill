@@ -294,6 +294,16 @@ func (m *K8sManager) buildVLLMArgs(modelConfig *ModelConfig) []string {
 		args = append(args, "--reasoning-parser", modelConfig.ReasoningParser)
 	}
 
+	// Add chat template if specified
+	if modelConfig.ChatTemplate != "" {
+		args = append(args, "--chat-template", modelConfig.ChatTemplate)
+	}
+
+	// Add tokenizer mode if specified
+	if modelConfig.TokenizerMode != "" {
+		args = append(args, "--tokenizer-mode", modelConfig.TokenizerMode)
+	}
+
 	args = append(args,
 		"--host", "0.0.0.0",
 		"--port", "8000",
