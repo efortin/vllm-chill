@@ -55,6 +55,18 @@ spec:
                   enum:
                     - ""
                     - "deepseek_r1"
+                chatTemplate:
+                  type: string
+                  description: "Jinja2 chat template for the model"
+                  default: ""
+                tokenizerMode:
+                  type: string
+                  description: "Tokenizer mode to use (auto, mistral, slow, etc.)"
+                  default: "auto"
+                  enum:
+                    - "auto"
+                    - "mistral"
+                    - "slow"
 
                 # vLLM Runtime Parameters (all required, no defaults)
                 maxModelLen:

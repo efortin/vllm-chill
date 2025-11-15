@@ -1,0 +1,55 @@
+# {"role": "user", "content": "Plan a two-day itinerary in Kyoto focused on temples and food.", "theme": "travel", "lang": "en"}
+event: message_start
+data: {"type": "message_start", "message": {"id": "msg_fwecytr15c", "type": "message", "role": "assistant", "content": []}, "conversation": "conv_stream_009", "created_at": "2025-11-14T12:47:25.539353Z", "meta": {"theme": "travel", "lang": "en", "simulated": true}}
+event: content_block_start
+data: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Great question—here'"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "s a concise p"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "lan. Topic: Pla"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "n a two-day itinerary in Kyo"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "to focused on temples and "}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "food. I'll p"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "rovide a brief"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " plan, then concrete steps"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " you can run today."}}
+event: content_block_stop
+data: {"type": "content_block_stop", "index": 0}
+event: content_block_start
+data: {"type": "content_block_start", "index": 1, "content_block": {"type": "tool_use", "id": "tool_vhjs3sis57", "name": "tasks_db", "input": {"op": "list", "project": "inbox-cleanup"}}}
+event: content_block_stop
+data: {"type": "content_block_stop", "index": 1}
+event: tool_result
+data: {"type": "tool_result", "tool_use_id": "tool_vhjs3sis57", "content": {"ok": true, "summary": "Simulated result from tasks_db", "data_sample": {"note": "example payload"}}}
+event: content_block_start
+data: {"type": "content_block_start", "index": 2, "content_block": {"type": "text", "text": ""}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "Based on the tasks"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "_db result, here are actio"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "nable steps:\n1) "}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "Apply the smallest viable"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": " change.\n2) Ver"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "ify with a quick check.\n"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "3) Iterate with safeguards"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "."}}
+event: content_block_stop
+data: {"type": "content_block_stop", "index": 2}
+event: message_delta
+data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"input_tokens": 118, "output_tokens": 141}}
+event: message_stop
+data: {"type": "message_stop"}

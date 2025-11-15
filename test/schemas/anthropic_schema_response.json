@@ -1,0 +1,22 @@
+{
+  "id": "string",                               // identifiant unique du message généré  [oai_citation:7‡anthropic.mintlify.app](https://anthropic.mintlify.app/en/api/messages?utm_source=chatgpt.com)
+  "model": "string",                            // modèle utilisé
+  "type": "message",                            // type d’objet retourné  [oai_citation:8‡AWS Documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages-request-response.html?utm_source=chatgpt.com)
+  "role": "assistant",                          // toujours “assistant” pour la réponse
+  "content": [
+    {
+      "type": "text" | "tool_use" | "image" | …,
+      "text": string (si type="text"),
+      "id": string (si type="tool_use"),
+      "name": string (si type="tool_use"),
+      "input": object (si type="tool_use"),
+      "image": object (si type="image")
+    }
+  ],
+  "stop_reason": string (ex: "end_turn", "tool_use", "refusal")  [oai_citation:9‡AWS Documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages-request-response.html?utm_source=chatgpt.com)
+"stop_sequence": string | null,
+"usage": {
+"input_tokens": integer,
+"output_tokens": integer
+}
+}

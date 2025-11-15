@@ -25,6 +25,8 @@ type VLLMModelSpec struct {
 	// Parsing Configuration
 	ToolCallParser  string `json:"toolCallParser,omitempty"`
 	ReasoningParser string `json:"reasoningParser,omitempty"`
+	ChatTemplate    string `json:"chatTemplate,omitempty"`
+	TokenizerMode   string `json:"tokenizerMode,omitempty"`
 
 	// vLLM Runtime Parameters (model-specific)
 	// Note: gpuCount and cpuOffloadGB are infrastructure-level, configured in vllm-chill

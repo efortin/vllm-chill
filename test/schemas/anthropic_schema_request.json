@@ -1,0 +1,35 @@
+{
+  "model": "string",                           // identifiant du modèle (ex : "claude-sonnet-4-5-20250929")  [oai_citation:1‡anthropic.mintlify.app](https://anthropic.mintlify.app/en/api/messages?utm_source=chatgpt.com)
+  "max_tokens": integer,                      // nombre max de tokens à générer  [oai_citation:2‡anthropic.mintlify.app](https://anthropic.mintlify.app/en/api/messages?utm_source=chatgpt.com)
+  "system": string (optional),                // invite système facultative  [oai_citation:3‡AWS Documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages-request-response.html?utm_source=chatgpt.com)
+  "messages": [                               // liste des messages précis jusqu’à présent  [oai_citation:4‡anthropic.mintlify.app](https://anthropic.mintlify.app/en/api/messages?utm_source=chatgpt.com)
+    {
+      "role": "user" | "assistant",            // rôle du message
+      "content": string | [                    // contenu du message : soit simple string, soit array de blocs
+      {
+        "type": "text" | "image" | "tool_use" | …,
+        "text": string (pour type="text"),
+        "source": { … } (pour type="image"),
+        "id": string,                         // pour tool_use blocs
+        "name": string,                       // pour tool_use blocs
+        "input": object                       // pour tool_use blocs
+      }
+    ]
+  }
+  ],
+  "tools": [ (optional)                           // définition des outils utilisables  [oai_citation:5‡Claude Docs](https://docs.claude.com/en/docs/agents-and-tools/tool-use/overview?utm_source=chatgpt.com)
+    {
+      "name": "string",
+      "description": "string",
+      "input_schema": object
+    }
+  ],
+  "tool_choice": { (optional)                      // comment choisir l’outil utilisé  [oai_citation:6‡AWS Documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages-request-response.html?utm_source=chatgpt.com)
+    "type": "auto" | "any" | "tool",
+    "name": "string" (if type="tool")
+  },
+  "temperature": number (optional),
+  "top_p": number (optional),
+  "stop_sequences": [string] (optional),
+  "metadata": object (optional)
+}

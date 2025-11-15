@@ -14,6 +14,8 @@ type ModelConfig struct {
 	// Parsing configuration
 	ToolCallParser  string
 	ReasoningParser string
+	ChatTemplate    string
+	TokenizerMode   string
 
 	// vLLM runtime parameters (model-specific)
 	MaxModelLen            string
@@ -36,6 +38,7 @@ func (m *ModelConfig) ToConfigMapData() map[string]string {
 		"SERVED_MODEL_NAME":         m.ServedModelName,
 		"TOOL_CALL_PARSER":          m.ToolCallParser,
 		"REASONING_PARSER":          m.ReasoningParser,
+		"CHAT_TEMPLATE":             m.ChatTemplate,
 		"MAX_MODEL_LEN":             m.MaxModelLen,
 		"GPU_MEMORY_UTILIZATION":    m.GPUMemoryUtilization,
 		"ENABLE_CHUNKED_PREFILL":    m.EnableChunkedPrefill,
@@ -57,6 +60,7 @@ func FromConfigMapData(data map[string]string) *ModelConfig {
 		ServedModelName:        data["SERVED_MODEL_NAME"],
 		ToolCallParser:         data["TOOL_CALL_PARSER"],
 		ReasoningParser:        data["REASONING_PARSER"],
+		ChatTemplate:           data["CHAT_TEMPLATE"],
 		MaxModelLen:            data["MAX_MODEL_LEN"],
 		GPUMemoryUtilization:   data["GPU_MEMORY_UTILIZATION"],
 		EnableChunkedPrefill:   data["ENABLE_CHUNKED_PREFILL"],

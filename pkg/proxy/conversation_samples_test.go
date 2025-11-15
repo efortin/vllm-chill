@@ -62,7 +62,7 @@ type OpenAIToolFunction struct {
 }
 
 func loadConversationSamples(t *testing.T) []ConversationSample {
-	samplesDir := "../../test/data/conversation-stream-sample"
+	samplesDir := "../../test/data/openai-stream-sample"
 
 	files, err := filepath.Glob(filepath.Join(samplesDir, "conversation-*.json"))
 	require.NoError(t, err, "Failed to list conversation samples")
@@ -183,7 +183,7 @@ func TestConversationSamples_StreamingXMLConversion(t *testing.T) {
 			recorder := httptest.NewRecorder()
 
 			// Create our custom response writer
-			rw := newResponseWriter(recorder, true, nil)
+			rw := newResponseWriter(recorder, true, nil, false)
 
 			// Write streaming chunks
 			for _, chunk := range sample.GenerateStream {
@@ -272,7 +272,7 @@ func TestQwenNativeStreamingToolCalls(t *testing.T) {
 
 	// Create a test HTTP response recorder
 	recorder := httptest.NewRecorder()
-	rw := newResponseWriter(recorder, true, nil)
+	rw := newResponseWriter(recorder, true, nil, false)
 
 	// Write the streaming data
 	_, err = rw.Write(data)

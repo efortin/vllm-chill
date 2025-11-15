@@ -30,6 +30,7 @@ type responseWriter struct {
 	chunkBuffer        []map[string]interface{} // Store parsed chunks for template
 	toolCallsDetected  bool                     // Whether native tool calls were detected
 	metrics            *stats.MetricsRecorder   // Metrics recorder for tracking operations
+	enableXMLParsing   bool                     // Feature flag to enable/disable XML parsing
 	// Deduplication fields for native tool calls (vLLM tensor parallelism workaround)
 	seenChunks       map[string]bool // Track seen SSE chunks by hash
 	lastToolCallArgs map[int]string  // Track last arguments per tool call index
@@ -37,13 +38,14 @@ type responseWriter struct {
 }
 
 // newResponseWriter creates a new response writer wrapper
-func newResponseWriter(w http.ResponseWriter, captureBody bool, metrics *stats.MetricsRecorder) *responseWriter {
+func newResponseWriter(w http.ResponseWriter, captureBody bool, metrics *stats.MetricsRecorder, enableXMLParsing bool) *responseWriter {
 	rw := &responseWriter{
 		ResponseWriter:   w,
 		statusCode:       http.StatusOK,
 		captureBody:      captureBody,
 		sseBuffer:        &bytes.Buffer{},
 		metrics:          metrics,
+		enableXMLParsing: enableXMLParsing,
 		seenChunks:       make(map[string]bool),
 		lastToolCallArgs: make(map[int]string),
 		toolCallIDs:      make(map[string]bool),
@@ -125,8 +127,8 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 						rw.accumulatedContent.WriteString(deltaContent)
 
 						accumulated := rw.accumulatedContent.String()
-						// Detect XML mode - check for various XML tool call patterns
-						if !rw.xmlDetectionMode && !rw.toolCallsDetected {
+						// Detect XML mode - check for various XML tool call patterns (only if enabled)
+						if rw.enableXMLParsing && !rw.xmlDetectionMode && !rw.toolCallsDetected {
 							// Detect complete or incomplete XML tool call patterns
 							if strings.Contains(accumulated, "<function=") ||
 								strings.Contains(accumulated, "<tool_call") ||

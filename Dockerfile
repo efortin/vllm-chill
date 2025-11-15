@@ -1,11 +1,5 @@
 # Build stage
-FROM golang:1.24-bookworm AS builder
-
-# Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    libc6-dev \
-    && rm -rf /var/lib/apt/lists/*
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
@@ -21,18 +15,16 @@ ARG VERSION=dev
 ARG COMMIT=unknown
 ARG DATE=unknown
 
-# Build with CGO enabled for NVML support
-RUN CGO_ENABLED=1 go build \
+# Build static binary with CGO disabled
+RUN CGO_ENABLED=0 go build \
     -ldflags="-w -s -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
     -o vllm-chill ./cmd/autoscaler
 
-# Final stage - use NVIDIA base for runtime NVML access
-FROM nvidia/cuda:12.1.0-base-ubuntu22.04
+# Final stage - use minimal Alpine base
+FROM alpine:latest
 
-# Install ca-certificates
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+# Install ca-certificates for HTTPS
+RUN apk --no-cache add ca-certificates
 
 # Copy binary from builder
 COPY --from=builder /app/vllm-chill /vllm-chill

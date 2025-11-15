@@ -1,0 +1,29 @@
+# {"role": "user", "content": "How to build a simple budget with envelope categories?", "theme": "finance", "lang": "en"}
+event: message_start
+data: {"type": "message_start", "message": {"id": "msg_rddmj3fa8t", "type": "message", "role": "assistant", "content": []}, "conversation": "conv_stream_005", "created_at": "2025-11-14T12:47:25.537004Z", "meta": {"theme": "finance", "lang": "en", "simulated": true}}
+event: content_block_start
+data: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Great questi"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "on—here's a concise plan. To"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "pic: How to build a s"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "imple budget w"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "ith envelope categor"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "ies? I'll provide a brief pl"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "an, then concrete steps"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " you can run toda"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "y."}}
+event: content_block_stop
+data: {"type": "content_block_stop", "index": 0}
+event: message_delta
+data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"input_tokens": 236, "output_tokens": 218}}
+event: message_stop
+data: {"type": "message_stop"}
