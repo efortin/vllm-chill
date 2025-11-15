@@ -588,19 +588,32 @@ func (as *AutoScaler) handleAnthropicFormatRequest(c *gin.Context) {
 
 		// Handle error responses from vLLM
 		if recorder.Code >= 400 {
-			log.Printf("[ERROR] vLLM returned error status: %d", recorder.Code)
+			errorBody := recorder.Body.String()
+			log.Printf("[ERROR] vLLM returned error status: %d, body: %s", recorder.Code, errorBody)
 			// Try to parse error response
 			var errorJSON map[string]interface{}
-			if err := json.Unmarshal(recorder.Body.Bytes(), &errorJSON); err == nil {
+			if err := json.Unmarshal([]byte(errorBody), &errorJSON); err == nil {
+				log.Printf("[DEBUG] Parsed error JSON: %+v", errorJSON)
 				// Transform OpenAI error format to Anthropic format
 				message := "Unknown error"
 				errorType := "api_error"
 
-				if msg, ok := errorJSON["message"].(string); ok {
-					message = msg
-				}
-				if typ, ok := errorJSON["type"].(string); ok {
-					errorType = typ
+				// OpenAI format: {"error": {"message": "...", "type": "..."}}
+				if errorObj, ok := errorJSON["error"].(map[string]interface{}); ok {
+					if msg, ok := errorObj["message"].(string); ok {
+						message = msg
+					}
+					if typ, ok := errorObj["type"].(string); ok {
+						errorType = typ
+					}
+				} else {
+					// Fallback: check top-level
+					if msg, ok := errorJSON["message"].(string); ok {
+						message = msg
+					}
+					if typ, ok := errorJSON["type"].(string); ok {
+						errorType = typ
+					}
 				}
 
 				c.JSON(recorder.Code, gin.H{
@@ -698,24 +711,43 @@ func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Requ
 		errorBody, err := io.ReadAll(resp.Body)
 		if err != nil {
 			log.Printf("[ERROR] Failed to read error response: %v", err)
-			c.JSON(resp.StatusCode, gin.H{"error": "vLLM error", "details": fmt.Sprintf("Status %d", resp.StatusCode)})
+			c.JSON(resp.StatusCode, gin.H{
+				"type": "error",
+				"error": gin.H{
+					"type":    "api_error",
+					"message": fmt.Sprintf("vLLM error (status %d)", resp.StatusCode),
+				},
+			})
 			return
 		}
 
+		log.Printf("[ERROR] vLLM error body: %s", string(errorBody))
 		// Try to parse as JSON error
 		var errorJSON map[string]interface{}
 		if err := json.Unmarshal(errorBody, &errorJSON); err == nil {
+			log.Printf("[DEBUG] Parsed error JSON: %+v", errorJSON)
 			// Transform OpenAI error format to Anthropic format
-			// OpenAI: {"message": "...", "type": "...", "code": "..."}
+			// OpenAI: {"error": {"message": "...", "type": "..."}}
 			// Anthropic: {"type": "error", "error": {"type": "...", "message": "..."}}
 			message := "Unknown error"
 			errorType := "api_error"
 
-			if msg, ok := errorJSON["message"].(string); ok {
-				message = msg
-			}
-			if typ, ok := errorJSON["type"].(string); ok {
-				errorType = typ
+			// OpenAI format: {"error": {"message": "...", "type": "..."}}
+			if errorObj, ok := errorJSON["error"].(map[string]interface{}); ok {
+				if msg, ok := errorObj["message"].(string); ok {
+					message = msg
+				}
+				if typ, ok := errorObj["type"].(string); ok {
+					errorType = typ
+				}
+			} else {
+				// Fallback: check top-level
+				if msg, ok := errorJSON["message"].(string); ok {
+					message = msg
+				}
+				if typ, ok := errorJSON["type"].(string); ok {
+					errorType = typ
+				}
 			}
 
 			c.JSON(resp.StatusCode, gin.H{
