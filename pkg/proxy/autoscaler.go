@@ -528,29 +528,20 @@ func (as *AutoScaler) handleAnthropicFormatRequest(c *gin.Context) {
 	// Check if streaming is requested
 	stream, _ := anthropicBody["stream"].(bool)
 
-	// Prune old messages if context is too large
+	// Check message count and return error if too large
+	// Let Claude Code handle context management (via /clear, etc.)
 	if messages, ok := anthropicBody["messages"].([]interface{}); ok {
-		const maxMessages = 50 // Keep only the last 50 messages
+		const maxMessages = 100 // Warning threshold
 		if len(messages) > maxMessages {
-			log.Printf("[DEBUG] Pruning context: %d messages -> %d messages", len(messages), maxMessages)
-			// Keep system message (if first) + last N messages
-			pruned := []interface{}{}
-			if len(messages) > 0 {
-				if firstMsg, ok := messages[0].(map[string]interface{}); ok {
-					if role, _ := firstMsg["role"].(string); role == "system" {
-						pruned = append(pruned, messages[0])
-						messages = messages[1:]
-					}
-				}
-			}
-			// Add last N messages
-			startIdx := len(messages) - maxMessages
-			if startIdx < 0 {
-				startIdx = 0
-			}
-			pruned = append(pruned, messages[startIdx:]...)
-			anthropicBody["messages"] = pruned
-			log.Printf("[DEBUG] Context pruned to %d messages", len(pruned))
+			log.Printf("[WARN] Context too large: %d messages (max recommended: %d)", len(messages), maxMessages)
+			c.JSON(http.StatusBadRequest, gin.H{
+				"type": "error",
+				"error": gin.H{
+					"type":    "invalid_request_error",
+					"message": fmt.Sprintf("Too many messages in conversation (%d messages). Please use /clear to reset context or start a new conversation.", len(messages)),
+				},
+			})
+			return
 		}
 	}
 
