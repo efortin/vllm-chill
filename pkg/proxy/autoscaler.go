@@ -883,6 +883,10 @@ func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Requ
 
 		// Send message_start event on first chunk
 		if !messageStartSent {
+			// Get actual input token count from tokenTracker
+			usageData := tokenTracker.GetUsage()
+			inputTokens := usageData["input_tokens"].(int)
+
 			startEvent := map[string]interface{}{
 				"type": "message_start",
 				"message": map[string]interface{}{
@@ -892,7 +896,7 @@ func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Requ
 					"content": []interface{}{},
 					"model":   chunk["model"],
 					"usage": map[string]interface{}{
-						"input_tokens":  0,
+						"input_tokens":  inputTokens,
 						"output_tokens": 0,
 					},
 				},
@@ -901,6 +905,7 @@ func (as *AutoScaler) streamAnthropicResponse(c *gin.Context, vllmReq *http.Requ
 			if _, err := fmt.Fprintf(c.Writer, "event: message_start\ndata: %s\n\n", startJSON); err != nil {
 				log.Printf("Error writing message_start event: %v", err)
 			}
+			log.Printf("[DEBUG] Sent message_start with input_tokens=%d", inputTokens)
 			messageStartSent = true
 
 			// Send content_block_start
