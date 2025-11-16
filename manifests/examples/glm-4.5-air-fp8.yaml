@@ -1,0 +1,31 @@
+apiVersion: vllm.sir-alfred.io/v1alpha1
+kind: VLLMModel
+metadata:
+  name: glm-45-air-fp8
+spec:
+  # Modèle FP8 (weight-only). Sur 3090 le compute reste en FP16.
+  modelName: zai-org/GLM-4.5-Air-FP8
+  servedModelName: glm-45-air-fp8
+
+  # Exécution & stabilité (2×3090)
+  dtype: float16
+  disableCustomAllReduce: true
+  tokenizerMode: auto
+
+  # Tool-agent (si tu utilises l’Anthropic-like côté proxy)
+  enableAutoToolChoice: true
+  toolCallParser: glm45
+  reasoningParser: glm45
+
+  # Mémoire / perf : valeurs conservatrices pour booter
+  gpuMemoryUtilization: 0.80        # + de marge au chargement
+  maxModelLen: 16384                 # le contexte n'influe pas l'init, mais restons bas
+  maxNumBatchedTokens: 1024          # ↓ pendant l'init
+  maxNumSeqs: 1                      # ↓ pendant l'init
+
+  # Prefill & caches
+  enableChunkedPrefill: true
+  enablePrefixCaching: false         # OFF au boot; tu pourras l'activer ensuite
+
+  # Quantization: laisser vide (le repo FP8 l’indique déjà)
+  quantization: ""

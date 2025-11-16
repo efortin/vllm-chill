@@ -16,6 +16,7 @@ type ModelConfig struct {
 	ReasoningParser string
 	ChatTemplate    string
 	TokenizerMode   string
+	Quantization    string
 
 	// vLLM runtime parameters (model-specific)
 	MaxModelLen            string

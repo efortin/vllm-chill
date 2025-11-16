@@ -10,28 +10,8 @@ stringData:
   api-key: "token-abc123"  # Change this to a secure random token
 
 ---
-# ConfigMap for vLLM model configuration
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: vllm-config
-  namespace: vllm
-data:
-  # Model identification
-  MODEL_NAME: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
-  SERVED_MODEL_NAME: "qwen3-coder-30b-fp8"
-
-  # Parsing configuration
-  TOOL_CALL_PARSER: "qwen3_coder"
-  REASONING_PARSER: ""
-
-  # GPU configuration
-  GPU_COUNT: "2"  # Number of GPUs to use (controls tensor-parallel-size and resource limits)
-  CPU_OFFLOAD_GB: "0"
-
-  # Note: vLLM runtime parameters (MAX_MODEL_LEN, MAX_NUM_BATCHED_TOKENS, etc.)
-  # are now mandatory in the VLLMModel CRD specification.
-  # These values are model-specific and should be defined per model.
+# Note: ConfigMap is deprecated. All model configuration now comes from VLLMModel CRD.
+# Infrastructure configuration (GPU_COUNT, CPU_OFFLOAD_GB) is set via environment variables below.
 
 ---
 # ServiceAccount for vllm-chill proxy
@@ -126,7 +106,7 @@ spec:
       serviceAccountName: vllm-chill
       containers:
       - name: vllm-chill
-        image: efortin/vllm-chill:latest
+        image: efortin/vllm-chill:dev
         imagePullPolicy: Always  # Always pull latest image
         args:
           - serve
@@ -140,20 +120,25 @@ spec:
             value: "vllm"
           - name: VLLM_DEPLOYMENT
             value: "vllm"
-          - name: VLLM_CONFIGMAP
-            value: "vllm-config"
           - name: VLLM_SOCKET
             value: ""
           - name: VLLM_TARGET
             value: "vllm-api"
           - name: VLLM_PORT
             value: "80"
+          # Model configuration from VLLMModel CRD
           - name: MODEL_ID
-            value: "qwen3-30b-thinking-fp8"  # Qwen3-Thinking with 110K context
+            value: "glm-4.5-fp8"  # References VLLMModel CRD name
+          # Infrastructure configuration
+          - name: GPU_COUNT
+            value: "2"
+          - name: CPU_OFFLOAD_GB
+            value: "0"
+          # Timeouts
           - name: IDLE_TIMEOUT
             value: "20m"
           - name: MANAGED_TIMEOUT
-            value: "5m"
+            value: "60m"
           - name: PORT
             value: "8080"
         ports:

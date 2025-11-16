@@ -304,6 +304,11 @@ func (m *K8sManager) buildVLLMArgs(modelConfig *ModelConfig) []string {
 		args = append(args, "--tokenizer-mode", modelConfig.TokenizerMode)
 	}
 
+	// Add quantization if specified
+	if modelConfig.Quantization != "" {
+		args = append(args, "--quantization", modelConfig.Quantization)
+	}
+
 	args = append(args,
 		"--host", "0.0.0.0",
 		"--port", "8000",
@@ -357,7 +362,7 @@ func (m *K8sManager) buildPodSpec(modelConfig *ModelConfig) corev1.PodSpec {
 			{
 				Name:            "vllm",
 				Image:           "vllm/vllm-openai:latest",
-				ImagePullPolicy: corev1.PullIfNotPresent,
+				ImagePullPolicy: corev1.PullAlways,
 				Command:         []string{"python3", "-m", "vllm.entrypoints.openai.api_server"},
 				Args:            m.buildVLLMArgs(modelConfig),
 				Env:             m.buildVLLMEnvVars(),
@@ -474,6 +479,14 @@ func (m *K8sManager) buildVLLMEnvVars() []corev1.EnvVar {
 		{
 			Name:  "OMP_NUM_THREADS",
 			Value: "16",
+		},
+		{
+			Name:  "PYTORCH_CUDA_ALLOC_CONF",
+			Value: "expandable_segments:True",
+		},
+		{
+			Name:  "CUDA_VISIBLE_DEVICES",
+			Value: "1,0",
 		},
 		// HF Token from secret (optional - will fail silently if secret doesn't exist)
 		{

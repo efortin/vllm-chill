@@ -75,8 +75,9 @@ The proxy will:
 		targetPort := getEnvOrDefault("VLLM_PORT", "80")
 		log.Printf("   Target: http://%s:%s", targetHost, targetPort)
 		log.Printf("   Deployment: %s/%s", namespace, deployment)
-		log.Printf("   ConfigMap: %s/%s", namespace, configMapName)
-		log.Printf("   Model ID: %s", modelID)
+		log.Printf("   Model ID: %s (from VLLMModel CRD)", modelID)
+		log.Printf("   GPU Count: %d", gpuCount)
+		log.Printf("   CPU Offload: %d GB", cpuOffloadGB)
 		log.Printf("   Idle timeout: %s", idleTimeout)
 		if logOutput {
 			log.Printf("   Output logging: enabled")
@@ -91,7 +92,7 @@ func init() {
 
 	serveCmd.Flags().StringVar(&namespace, "namespace", getEnvOrDefault("VLLM_NAMESPACE", "vllm"), "Kubernetes namespace")
 	serveCmd.Flags().StringVar(&deployment, "deployment", getEnvOrDefault("VLLM_DEPLOYMENT", "vllm"), "Deployment name")
-	serveCmd.Flags().StringVar(&configMapName, "configmap", getEnvOrDefault("VLLM_CONFIGMAP", "vllm-config"), "ConfigMap name for model configuration")
+	serveCmd.Flags().StringVar(&configMapName, "configmap", getEnvOrDefault("VLLM_CONFIGMAP", ""), "ConfigMap name (deprecated - config from VLLMModel CRD)")
 	serveCmd.Flags().StringVar(&idleTimeout, "idle-timeout", getEnvOrDefault("IDLE_TIMEOUT", "5m"), "Idle timeout before scaling to 0")
 	serveCmd.Flags().StringVar(&port, "port", getEnvOrDefault("PORT", "8080"), "HTTP server port")
 	serveCmd.Flags().StringVar(&modelID, "model-id", getEnvOrDefault("MODEL_ID", ""), "Model ID to load from VLLMModel CRD (required)")

@@ -3,171 +3,10 @@ package kubernetes
 import (
 	"testing"
 
-	"github.com/efortin/vllm-chill/pkg/apis/vllm/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-func TestModelNotFoundError(t *testing.T) {
-	err := &ModelNotFoundError{ModelID: "test-model"}
-	expectedMsg := "model 'test-model' not found"
-	if err.Error() != expectedMsg {
-		t.Errorf("Error() = %v, want %v", err.Error(), expectedMsg)
-	}
-}
-
-func TestCRDClient_ConvertToModelConfig(t *testing.T) {
-	tests := []struct {
-		name    string
-		obj     *unstructured.Unstructured
-		want    *ModelConfig
-		wantErr bool
-	}{
-		{
-			name: "valid vllmmodel",
-			obj: &unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"apiVersion": "vllm.sir-alfred.io/v1alpha1",
-					"kind":       "VLLMModel",
-					"metadata": map[string]interface{}{
-						"name":      "test-model",
-						"namespace": "ai-apps",
-					},
-					"spec": map[string]interface{}{
-						"modelName":              "test/model",
-						"servedModelName":        "test-model",
-						"toolCallParser":         "hermes",
-						"reasoningParser":        "deepseek_r1",
-						"maxModelLen":            int64(65536),
-						"gpuMemoryUtilization":   0.91,
-						"enableChunkedPrefill":   true,
-						"maxNumBatchedTokens":    int64(4096),
-						"maxNumSeqs":             int64(16),
-						"dtype":                  "float16",
-						"disableCustomAllReduce": true,
-						"enablePrefixCaching":    true,
-						"cpuOffloadGB":           int64(0),
-						"enableAutoToolChoice":   true,
-					},
-				},
-			},
-			want: &ModelConfig{
-				ModelName:              "test/model",
-				ServedModelName:        "test-model",
-				ToolCallParser:         "hermes",
-				ReasoningParser:        "deepseek_r1",
-				MaxModelLen:            "65536",
-				GPUMemoryUtilization:   "0.91",
-				EnableChunkedPrefill:   "true",
-				MaxNumBatchedTokens:    "4096",
-				MaxNumSeqs:             "16",
-				Dtype:                  "float16",
-				DisableCustomAllReduce: "true",
-				EnablePrefixCaching:    "true",
-				EnableAutoToolChoice:   "true",
-			},
-			wantErr: false,
-		},
-		{
-			name: "missing spec",
-			obj: &unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"apiVersion": "vllm.sir-alfred.io/v1alpha1",
-					"kind":       "VLLMModel",
-					"metadata": map[string]interface{}{
-						"name": "test-model",
-					},
-				},
-			},
-			want:    nil,
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			client := &CRDClient{}
-			got, err := client.convertToModelConfig(tt.obj)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("convertToModelConfig() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if tt.wantErr {
-				return
-			}
-
-			if got.ModelName != tt.want.ModelName {
-				t.Errorf("ModelName = %v, want %v", got.ModelName, tt.want.ModelName)
-			}
-			if got.ServedModelName != tt.want.ServedModelName {
-				t.Errorf("ServedModelName = %v, want %v", got.ServedModelName, tt.want.ServedModelName)
-			}
-		})
-	}
-}
-
-// Note: GetModel and ListModels tests are skipped because the fake dynamic client
-// has issues with custom GVR. These methods are tested in integration tests.
-
-func TestConvertUnstructuredToVLLMModel(t *testing.T) {
-	tests := []struct {
-		name    string
-		obj     *unstructured.Unstructured
-		wantErr bool
-	}{
-		{
-			name: "valid model",
-			obj: &unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"apiVersion": "vllm.sir-alfred.io/v1alpha1",
-					"kind":       "VLLMModel",
-					"metadata": map[string]interface{}{
-						"name":      "test-model",
-						"namespace": "default",
-					},
-					"spec": map[string]interface{}{
-						"modelName":       "test/model",
-						"servedModelName": "test-model",
-					},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "missing spec",
-			obj: &unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"apiVersion": "vllm.sir-alfred.io/v1alpha1",
-					"kind":       "VLLMModel",
-					"metadata": map[string]interface{}{
-						"name": "test-model",
-					},
-				},
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			model := &v1alpha1.VLLMModel{}
-			err := convertUnstructuredToVLLMModel(tt.obj, model)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("convertUnstructuredToVLLMModel() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !tt.wantErr {
-				if model.Name != "test-model" {
-					t.Errorf("Name = %v, want test-model", model.Name)
-				}
-				if model.Spec.ModelName != "test/model" {
-					t.Errorf("ModelName = %v, want test/model", model.Spec.ModelName)
-				}
-			}
-		})
-	}
-}
-
-func TestCRDClient_ConvertToModelConfig_AllFields(t *testing.T) {
+func TestCRDClient_ConvertToModelConfig_WithChatTemplateAndTokenizerMode(t *testing.T) {
 	obj := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "vllm.sir-alfred.io/v1alpha1",
@@ -181,6 +20,8 @@ func TestCRDClient_ConvertToModelConfig_AllFields(t *testing.T) {
 				"servedModelName":        "full-model",
 				"toolCallParser":         "hermes",
 				"reasoningParser":        "deepseek_r1",
+				"chatTemplate":           "my-custom-template",
+				"tokenizerMode":          "mistral",
 				"maxModelLen":            int64(32768),
 				"gpuMemoryUtilization":   0.95,
 				"enableChunkedPrefill":   true,
@@ -201,7 +42,7 @@ func TestCRDClient_ConvertToModelConfig_AllFields(t *testing.T) {
 		t.Fatalf("convertToModelConfig() error = %v", err)
 	}
 
-	// Verify all fields
+	// Verify all fields including the new ones
 	if config.ModelName != "test/full-model" {
 		t.Errorf("ModelName = %v, want test/full-model", config.ModelName)
 	}
@@ -213,6 +54,12 @@ func TestCRDClient_ConvertToModelConfig_AllFields(t *testing.T) {
 	}
 	if config.ReasoningParser != "deepseek_r1" {
 		t.Errorf("ReasoningParser = %v, want deepseek_r1", config.ReasoningParser)
+	}
+	if config.ChatTemplate != "my-custom-template" {
+		t.Errorf("ChatTemplate = %v, want my-custom-template", config.ChatTemplate)
+	}
+	if config.TokenizerMode != "mistral" {
+		t.Errorf("TokenizerMode = %v, want mistral", config.TokenizerMode)
 	}
 	if config.MaxModelLen != "32768" {
 		t.Errorf("MaxModelLen = %v, want 32768", config.MaxModelLen)

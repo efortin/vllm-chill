@@ -28,9 +28,7 @@ func (c *Config) Validate() error {
 	if c.Deployment == "" {
 		return fmt.Errorf("deployment cannot be empty")
 	}
-	if c.ConfigMapName == "" {
-		return fmt.Errorf("configmap name cannot be empty")
-	}
+	// ConfigMapName is now optional (deprecated - config comes from VLLMModel CRD)
 	if _, err := time.ParseDuration(c.IdleTimeout); err != nil {
 		return fmt.Errorf("invalid idle timeout: %w", err)
 	}

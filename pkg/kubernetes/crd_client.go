@@ -99,6 +99,9 @@ func (c *CRDClient) convertToModelConfig(u *unstructured.Unstructured) (*ModelCo
 	if tokenizerMode, found, _ := unstructured.NestedString(spec, "tokenizerMode"); found {
 		config.TokenizerMode = tokenizerMode
 	}
+	if quantization, found, _ := unstructured.NestedString(spec, "quantization"); found {
+		config.Quantization = quantization
+	}
 
 	// vLLM runtime parameters (model-specific only)
 	if maxModelLen, found, _ := unstructured.NestedInt64(spec, "maxModelLen"); found {
