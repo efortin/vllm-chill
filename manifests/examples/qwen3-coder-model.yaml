@@ -16,9 +16,11 @@ spec:
   maxModelLen: 112640
   gpuMemoryUtilization: 0.91
   enableChunkedPrefill: true
-  maxNumBatchedTokens: 8192
-  maxNumSeqs: 16
+  maxNumBatchedTokens: 16384
+  maxNumSeqs: 4
   dtype: "float16"
   disableCustomAllReduce: true
   enablePrefixCaching: true
   enableAutoToolChoice: true
+
+

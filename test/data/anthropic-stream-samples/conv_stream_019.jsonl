@@ -1,0 +1,51 @@
+# {"role": "user", "content": "How to build a simple budget with envelope categories?", "theme": "finance", "lang": "en"}
+event: message_start
+data: {"type": "message_start", "message": {"id": "msg_9qfgdmdiju", "type": "message", "role": "assistant", "content": []}, "conversation": "conv_stream_019", "created_at": "2025-11-14T12:47:25.545555Z", "meta": {"theme": "finance", "lang": "en", "simulated": true}}
+event: content_block_start
+data: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Let's break this down ste"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "p by step. Topic: How to"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " build a simple budget wi"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "th envelope categories? I'll"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " provide a brief p"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "lan, then concrete steps"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " you can run today."}}
+event: content_block_stop
+data: {"type": "content_block_stop", "index": 0}
+event: content_block_start
+data: {"type": "content_block_start", "index": 1, "content_block": {"type": "tool_use", "id": "tool_rumyt24d6n", "name": "web_search", "input": {"query": "relevant docs or knowledge base"}}}
+event: content_block_stop
+data: {"type": "content_block_stop", "index": 1}
+event: tool_result
+data: {"type": "tool_result", "tool_use_id": "tool_rumyt24d6n", "content": {"ok": true, "summary": "Simulated result from web_search", "data_sample": {"note": "example payload"}}}
+event: content_block_start
+data: {"type": "content_block_start", "index": 2, "content_block": {"type": "text", "text": ""}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "Based on the web_search re"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "sult, here are actionable"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": " steps:\n1) Apply the "}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "smallest via"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "ble change.\n2) V"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "erify with a "}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "quick check.\n3) Iterate w"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "ith safeguards."}}
+event: content_block_stop
+data: {"type": "content_block_stop", "index": 2}
+event: message_delta
+data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"input_tokens": 347, "output_tokens": 205}}
+event: message_stop
+data: {"type": "message_stop"}

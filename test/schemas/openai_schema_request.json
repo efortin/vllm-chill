@@ -1,0 +1,28 @@
+{
+  "model": "string",                      // par ex. "gpt-4o-2024-08-06"
+  "messages": [
+    {
+      "role": "system" | "user" | "assistant",
+      "content": "string",
+      "name": "string (optional)"
+    }
+  ],
+  "temperature": number (optional),
+  "top_p": number (optional),
+  "max_tokens": integer (optional),
+  "stop": [ "string", ... ] (optional),
+  "functions": [                         // fonction‐calling (outil) optionnel
+    {
+      "name": "string",
+      "description": "string",
+      "parameters": { "type": "object", "properties": { … }, "required": [ … ] }
+    }
+  ],
+  "function_call": {                     // contrôle d’appel de fonction (outil)
+    "name": "string" | "auto"
+  },
+  "response_format": {                   // “Structured Outputs” format optionnel
+    "type": "json_schema",
+    "json_schema": { … }                 // un schéma JSON auquel la sortie doit adhérer
+  }
+}

@@ -1,0 +1,55 @@
+# {"role": "user", "content": "Explain dollar-cost averaging versus lump-sum investing.", "theme": "finance", "lang": "en"}
+event: message_start
+data: {"type": "message_start", "message": {"id": "msg_67cd0jmvwk", "type": "message", "role": "assistant", "content": []}, "conversation": "conv_stream_017", "created_at": "2025-11-14T12:47:25.544256Z", "meta": {"theme": "finance", "lang": "en", "simulated": true}}
+event: content_block_start
+data: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Let's break this down s"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "tep by step. Topic:"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " Explain dollar-cost averag"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "ing versus lump-sum investi"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "ng. I'll provide a brief"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " plan, then "}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "concrete steps yo"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "u can run to"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "day."}}
+event: content_block_stop
+data: {"type": "content_block_stop", "index": 0}
+event: content_block_start
+data: {"type": "content_block_start", "index": 1, "content_block": {"type": "tool_use", "id": "tool_kfml4a14e7", "name": "maps_api", "input": {"place": "Kyoto station"}}}
+event: content_block_stop
+data: {"type": "content_block_stop", "index": 1}
+event: tool_result
+data: {"type": "tool_result", "tool_use_id": "tool_kfml4a14e7", "content": {"ok": true, "summary": "Simulated result from maps_api", "data_sample": {"note": "example payload"}}}
+event: content_block_start
+data: {"type": "content_block_start", "index": 2, "content_block": {"type": "text", "text": ""}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "Based on the"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": " maps_api result, her"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "e are actionable ste"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "ps:\n1) Apply the smalle"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "st viable chan"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "ge.\n2) Verify with a qui"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "ck check.\n3) Iterate wit"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "h safeguards."}}
+event: content_block_stop
+data: {"type": "content_block_stop", "index": 2}
+event: message_delta
+data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"input_tokens": 192, "output_tokens": 189}}
+event: message_stop
+data: {"type": "message_stop"}

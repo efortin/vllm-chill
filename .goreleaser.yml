@@ -49,7 +49,7 @@ changelog:
       - Merge branch
 
 dockers:
-  # AMD64 image with CGO/NVML support (requires GPU nodes with NVIDIA drivers)
+  # Static binary image (no CGO, no NVIDIA dependencies)
   - image_templates:
       - "{{ .Env.DOCKER_REGISTRY }}/{{ .Env.DOCKER_IMAGE }}:{{ .Version }}"
       - "{{ .Env.DOCKER_REGISTRY }}/{{ .Env.DOCKER_IMAGE }}:latest"

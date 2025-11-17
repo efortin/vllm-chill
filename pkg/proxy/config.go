@@ -9,7 +9,6 @@ import (
 type Config struct {
 	Namespace      string
 	Deployment     string
-	ConfigMapName  string
 	IdleTimeout    string
 	Port           string
 	LogOutput      bool
@@ -26,9 +25,6 @@ func (c *Config) Validate() error {
 	}
 	if c.Deployment == "" {
 		return fmt.Errorf("deployment cannot be empty")
-	}
-	if c.ConfigMapName == "" {
-		return fmt.Errorf("configmap name cannot be empty")
 	}
 	if _, err := time.ParseDuration(c.IdleTimeout); err != nil {
 		return fmt.Errorf("invalid idle timeout: %w", err)

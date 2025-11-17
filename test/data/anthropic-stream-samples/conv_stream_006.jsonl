@@ -1,0 +1,27 @@
+# {"role": "user", "content": "How do I structure a beginner bodyweight workout plan?", "theme": "health", "lang": "en"}
+event: message_start
+data: {"type": "message_start", "message": {"id": "msg_ww21hio2hr", "type": "message", "role": "assistant", "content": []}, "conversation": "conv_stream_006", "created_at": "2025-11-14T12:47:25.537603Z", "meta": {"theme": "health", "lang": "en", "simulated": true}}
+event: content_block_start
+data: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Let's break "}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "this down step by st"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "ep. Topic: How do I structu"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "re a beginner bodywe"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "ight workout plan?"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " I'll provide a brief p"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "lan, then concrete steps y"}}
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "ou can run today."}}
+event: content_block_stop
+data: {"type": "content_block_stop", "index": 0}
+event: message_delta
+data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"input_tokens": 193, "output_tokens": 100}}
+event: message_stop
+data: {"type": "message_stop"}

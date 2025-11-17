@@ -9,36 +9,6 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
-func TestK8sManager_EnsureConfigMap(t *testing.T) {
-	clientset := fake.NewSimpleClientset()
-	config := &Config{
-		Namespace:     "test-ns",
-		Deployment:    "vllm",
-		ConfigMapName: "vllm-config",
-	}
-	manager := NewK8sManager(clientset, config)
-
-	modelConfig := &ModelConfig{
-		ModelName:       "test/model",
-		ServedModelName: "test-model",
-	}
-
-	ctx := context.Background()
-
-	t.Run("deprecated - returns immediately", func(t *testing.T) {
-		err := manager.ensureConfigMap(ctx, modelConfig)
-		if err != nil {
-			t.Fatalf("ensureConfigMap() error = %v", err)
-		}
-
-		// Verify ConfigMap was NOT created (deprecated function)
-		_, err = clientset.CoreV1().ConfigMaps("test-ns").Get(ctx, "vllm-config", metav1.GetOptions{})
-		if err == nil {
-			t.Error("ConfigMap should not be created (function is deprecated)")
-		}
-	})
-}
-
 func TestK8sManager_EnsureService(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 	config := &Config{
@@ -88,11 +58,11 @@ func TestK8sManager_EnsureService(t *testing.T) {
 func TestK8sManager_CreatePod(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 	config := &Config{
-		Namespace:     "test-ns",
-		Deployment:    "vllm",
-		ConfigMapName: "vllm-config",
-		GPUCount:      2,
-		CPUOffloadGB:  0,
+		Namespace:  "test-ns",
+		Deployment: "vllm",
+
+		GPUCount:     2,
+		CPUOffloadGB: 0,
 	}
 	manager := NewK8sManager(clientset, config)
 
@@ -140,9 +110,8 @@ func TestK8sManager_CreatePod(t *testing.T) {
 func TestK8sManager_EnsureVLLMResources(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 	config := &Config{
-		Namespace:     "test-ns",
-		Deployment:    "vllm",
-		ConfigMapName: "vllm-config",
+		Namespace:  "test-ns",
+		Deployment: "vllm",
 	}
 	manager := NewK8sManager(clientset, config)
 
@@ -169,9 +138,7 @@ func TestK8sManager_EnsureVLLMResources(t *testing.T) {
 }
 
 func TestK8sManager_BuildSystemEnvVars(t *testing.T) {
-	config := &Config{
-		ConfigMapName: "test-config",
-	}
+	config := &Config{}
 	manager := NewK8sManager(nil, config)
 
 	envVars := manager.buildVLLMEnvVars()
@@ -214,9 +181,9 @@ func TestK8sManager_BuildSystemEnvVars(t *testing.T) {
 
 func TestK8sManager_BuildPodSpec(t *testing.T) {
 	config := &Config{
-		ConfigMapName: "test-config",
-		GPUCount:      2,
-		CPUOffloadGB:  0,
+
+		GPUCount:     2,
+		CPUOffloadGB: 0,
 	}
 	manager := NewK8sManager(nil, config)
 
@@ -313,9 +280,8 @@ func TestK8sManager_WithExistingResources(t *testing.T) {
 
 	clientset := fake.NewSimpleClientset(existingConfigMap, existingService)
 	config := &Config{
-		Namespace:     "test-ns",
-		Deployment:    "vllm",
-		ConfigMapName: "vllm-config",
+		Namespace:  "test-ns",
+		Deployment: "vllm",
 	}
 	manager := NewK8sManager(clientset, config)
 
@@ -484,11 +450,10 @@ func TestK8sManager_VerifyPodConfig(t *testing.T) {
 	}
 
 	config := &Config{
-		Namespace:     "test-ns",
-		Deployment:    "vllm",
-		GPUCount:      2,
-		CPUOffloadGB:  0,
-		ConfigMapName: "vllm-config",
+		Namespace:    "test-ns",
+		Deployment:   "vllm",
+		GPUCount:     2,
+		CPUOffloadGB: 0,
 	}
 	manager := NewK8sManager(nil, config)
 

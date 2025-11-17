@@ -206,7 +206,6 @@ curl -X POST http://vllm-chill:8080/proxy/models/switch \
 
 - **`/proxy/metrics`** - vLLM-Chill proxy metrics (autoscaling, requests, latency)
 - **`/metrics`** - vLLM backend metrics (model inference, GPU usage) - proxied to vLLM when running
-- **`/proxy/stats`** - GPU statistics
 - **`/proxy/version`** - Version information
 
 Both metrics endpoints are accessible through the same service, allowing separate monitoring of proxy and backend.

@@ -48,6 +48,7 @@ spec:
                     - "internlm2"
                     - "qwen3_coder"
                     - "granite"
+                    - "glm45"
                 reasoningParser:
                   type: string
                   description: "Reasoning parser to use"
@@ -55,6 +56,33 @@ spec:
                   enum:
                     - ""
                     - "deepseek_r1"
+                    - "glm45"
+                chatTemplate:
+                  type: string
+                  description: "Jinja2 chat template for the model"
+                  default: ""
+                tokenizerMode:
+                  type: string
+                  description: "Tokenizer mode to use (auto, mistral, slow, etc.)"
+                  default: "auto"
+                  enum:
+                    - "auto"
+                    - "mistral"
+                    - "slow"
+                quantization:
+                  type: string
+                  description: "Quantization method to use (e.g., awq, gptq, bitsandbytes, bitsandbytes-nf4, bitsandbytes-fp4, bitsandbytes-int8)"
+                  default: ""
+                  enum:
+                    - ""
+                    - "awq"
+                    - "gptq"
+                    - "squeezellm"
+                    - "marlin"
+                    - "bitsandbytes"
+                    - "bitsandbytes-nf4"
+                    - "bitsandbytes-fp4"
+                    - "bitsandbytes-int8"
 
                 # vLLM Runtime Parameters (all required, no defaults)
                 maxModelLen:

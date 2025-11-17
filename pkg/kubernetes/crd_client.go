@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"time"
 
 	"github.com/efortin/vllm-chill/pkg/apis/vllm/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -92,6 +93,15 @@ func (c *CRDClient) convertToModelConfig(u *unstructured.Unstructured) (*ModelCo
 	}
 	if reasoningParser, found, _ := unstructured.NestedString(spec, "reasoningParser"); found {
 		config.ReasoningParser = reasoningParser
+	}
+	if chatTemplate, found, _ := unstructured.NestedString(spec, "chatTemplate"); found {
+		config.ChatTemplate = chatTemplate
+	}
+	if tokenizerMode, found, _ := unstructured.NestedString(spec, "tokenizerMode"); found {
+		config.TokenizerMode = tokenizerMode
+	}
+	if quantization, found, _ := unstructured.NestedString(spec, "quantization"); found {
+		config.Quantization = quantization
 	}
 
 	// vLLM runtime parameters (model-specific only)
@@ -183,51 +193,104 @@ func convertUnstructuredToVLLMModel(u *unstructured.Unstructured, model *v1alpha
 // WatchModel watches a specific VLLMModel for changes
 // Calls the callback function when the model is modified
 func (c *CRDClient) WatchModel(ctx context.Context, modelName string, callback func()) error {
-	// Get the model first to get its resource version
+	// Get the model first to verify it exists
 	list, err := c.dynamicClient.Resource(vllmModelGVR).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to list models: %w", err)
 	}
 
-	// Find the model's resource version
-	var resourceVersion string
+	// Verify the model exists
+	found := false
 	for _, item := range list.Items {
 		if item.GetName() == modelName {
-			resourceVersion = item.GetResourceVersion()
+			found = true
 			break
 		}
 	}
 
-	if resourceVersion == "" {
+	if !found {
 		return fmt.Errorf("model %s not found", modelName)
 	}
 
-	// Start watching from this resource version
-	watcher, err := c.dynamicClient.Resource(vllmModelGVR).Watch(ctx, metav1.ListOptions{
-		FieldSelector:   fmt.Sprintf("metadata.name=%s", modelName),
-		ResourceVersion: resourceVersion,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create watcher: %w", err)
-	}
+	go c.watchModelLoop(ctx, modelName, callback)
 
-	go func() {
-		defer watcher.Stop()
-		log.Printf("Started watching VLLMModel: %s", modelName)
+	return nil
+}
 
-		for {
+// watchModelLoop manages the watch lifecycle with exponential backoff
+func (c *CRDClient) watchModelLoop(ctx context.Context, modelName string, callback func()) {
+	backoff := time.Second
+	maxBackoff := 30 * time.Second
+	consecutiveFailures := 0
+
+	log.Printf("Started watching VLLMModel: %s", modelName)
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("Stopped watching VLLMModel: %s", modelName)
+			return
+		default:
+		}
+
+		// Get fresh resource version for this watch attempt
+		list, err := c.dynamicClient.Resource(vllmModelGVR).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			log.Printf("Failed to list models for watch: %v, retrying in %v", err, backoff)
+			time.Sleep(backoff)
+			backoff = min(backoff*2, maxBackoff)
+			continue
+		}
+
+		// Find the current resource version
+		var resourceVersion string
+		for _, item := range list.Items {
+			if item.GetName() == modelName {
+				resourceVersion = item.GetResourceVersion()
+				break
+			}
+		}
+
+		if resourceVersion == "" {
+			log.Printf("Model %s not found, retrying in %v", modelName, backoff)
+			time.Sleep(backoff)
+			backoff = min(backoff*2, maxBackoff)
+			continue
+		}
+
+		// Create watcher with fresh resource version
+		watcher, err := c.dynamicClient.Resource(vllmModelGVR).Watch(ctx, metav1.ListOptions{
+			FieldSelector:   fmt.Sprintf("metadata.name=%s", modelName),
+			ResourceVersion: resourceVersion,
+		})
+		if err != nil {
+			consecutiveFailures++
+			log.Printf("Failed to create watcher (attempt %d): %v, retrying in %v", consecutiveFailures, err, backoff)
+			time.Sleep(backoff)
+			backoff = min(backoff*2, maxBackoff)
+			continue
+		}
+
+		// Watch created successfully - reset backoff
+		if consecutiveFailures > 0 {
+			log.Printf("Watch re-established for VLLMModel: %s after %d failures", modelName, consecutiveFailures)
+		}
+		backoff = time.Second
+		consecutiveFailures = 0
+
+		// Process watch events
+		watchClosed := false
+		for !watchClosed {
 			select {
 			case <-ctx.Done():
+				watcher.Stop()
 				log.Printf("Stopped watching VLLMModel: %s", modelName)
 				return
 			case event, ok := <-watcher.ResultChan():
 				if !ok {
-					log.Printf("Watch channel closed for VLLMModel: %s, restarting watch", modelName)
-					// Recreate watcher
-					if err := c.WatchModel(ctx, modelName, callback); err != nil {
-						log.Printf("Failed to restart watch: %v", err)
-					}
-					return
+					log.Printf("Watch channel closed for VLLMModel: %s, will restart with fresh resource version", modelName)
+					watchClosed = true
+					break
 				}
 
 				if event.Type == watch.Modified {
@@ -236,7 +299,23 @@ func (c *CRDClient) WatchModel(ctx context.Context, modelName string, callback f
 				}
 			}
 		}
-	}()
 
-	return nil
+		watcher.Stop()
+
+		// Brief pause before restarting to avoid tight loop
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Second):
+			// Continue to next iteration
+		}
+	}
+}
+
+// min returns the minimum of two durations
+func min(a, b time.Duration) time.Duration {
+	if a < b {
+		return a
+	}
+	return b
 }

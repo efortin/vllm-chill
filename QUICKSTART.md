@@ -97,6 +97,33 @@ curl http://localhost:8080/v1/chat/completions \
   }'
 ```
 
+### Using with Claude Code
+
+vLLM-Chill supports the Anthropic Messages API format, allowing you to use Claude Code with your own LLM.
+
+#### Setup Shell Alias
+
+Add this alias to your `~/.zshrc` or `~/.bashrc`:
+
+```bash
+alias claudie="ANTHROPIC_BASE_URL='https://vllm.sir-alfred.io' ANTHROPIC_AUTH_TOKEN='token-abc123' ANTHROPIC_MODEL='qwen3-coder-30b-fp8' claude"
+```
+
+Replace the values with your deployment:
+- `ANTHROPIC_BASE_URL`: Your vLLM-Chill endpoint URL
+- `ANTHROPIC_AUTH_TOKEN`: Your API token (if using authentication)
+- `ANTHROPIC_MODEL`: Model ID from your VLLMModel CRD
+
+#### Usage
+
+After reloading your shell, run:
+
+```bash
+claudie
+```
+
+This will launch Claude Code using your self-hosted LLM through vLLM-Chill's Anthropic-compatible `/v1/messages` endpoint.
+
 ### Monitor
 
 ```bash

@@ -43,16 +43,6 @@ func TestMetricsRecorder_SetCurrentModel(t *testing.T) {
 	mr.SetCurrentModel("another-model")
 }
 
-func TestMetricsRecorder_RecordXMLParsing(t *testing.T) {
-	mr := NewMetricsRecorder()
-
-	// Test successful parsing
-	mr.RecordXMLParsing(true, 3)
-
-	// Test failed parsing
-	mr.RecordXMLParsing(false, 0)
-}
-
 func TestMetricsRecorder_RecordProxyLatency(t *testing.T) {
 	mr := NewMetricsRecorder()
 

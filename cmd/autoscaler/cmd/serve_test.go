@@ -1,28 +1,17 @@
-package cmd
+// Package cmd_test contains Ginkgo tests for the cmd package.
+// This file was created to convert the original Go testing format tests
+// to Ginkgo format. The original tests have been moved to serve_ginkgo_test.go
+// and this file is kept for backward compatibility purposes.
+package cmd_test
 
 import (
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 )
 
-func TestSetVersion(t *testing.T) {
-	// Test version setting functionality
-	SetVersion("1.0.0", "abc123", "2023-01-01")
-
-	// Verify version is set (we can't easily test the rootCmd.Version directly)
-	// but we can verify that the function doesn't panic
-	assert.True(t, true)
-}
-
-func TestExecute(t *testing.T) {
-	// Test that Execute function can be called without panicking
-	// This is a basic smoke test since Execute() requires actual command execution
-	assert.True(t, true)
-}
-
-func TestGetEnvOrDefault(t *testing.T) {
-	// Test environment variable lookup
-	result := getEnvOrDefault("NONEXISTENT_VAR", "default_value")
-	assert.Equal(t, "default_value", result)
+// TestServeLegacy is a placeholder test to ensure the file still compiles
+// and maintains compatibility with existing test runners.
+func TestServeLegacy(t *testing.T) {
+	// This is a legacy test file that has been replaced with Ginkgo tests
+	// in serve_ginkgo_test.go
+	t.Logf("Legacy test file - Ginkgo tests are in serve_ginkgo_test.go")
 }

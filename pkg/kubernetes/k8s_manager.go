@@ -43,13 +43,6 @@ func (m *K8sManager) EnsureVLLMResources(ctx context.Context, initialModel *Mode
 	return nil
 }
 
-// ensureConfigMap is deprecated - model config is now read directly from CRD
-// Kept for backward compatibility but not used
-func (m *K8sManager) ensureConfigMap(ctx context.Context, modelConfig *ModelConfig) error {
-	log.Printf("ConfigMap management is deprecated - model config is read directly from CRD")
-	return nil
-}
-
 // ensureService creates the vLLM service if it doesn't exist
 // Note: Service name must NOT be "vllm" to avoid K8s env var conflicts (VLLM_SERVICE_HOST, etc.)
 func (m *K8sManager) ensureService(ctx context.Context) error {
@@ -227,7 +220,12 @@ func (m *K8sManager) VerifyPodConfig(ctx context.Context, modelConfig *ModelConf
 func argsToMap(args []string) map[string]string {
 	m := make(map[string]string)
 	for i := 0; i < len(args); i++ {
-		if args[i][0] == '-' && i+1 < len(args) && args[i+1][0] != '-' {
+		// Skip empty strings to prevent panic
+		if len(args[i]) == 0 {
+			continue
+		}
+
+		if args[i][0] == '-' && i+1 < len(args) && len(args[i+1]) > 0 && args[i+1][0] != '-' {
 			m[args[i]] = args[i+1]
 			i++ // Skip next arg as it's the value
 		} else if args[i][0] == '-' {
@@ -289,6 +287,21 @@ func (m *K8sManager) buildVLLMArgs(modelConfig *ModelConfig) []string {
 		args = append(args, "--reasoning-parser", modelConfig.ReasoningParser)
 	}
 
+	// Add chat template if specified
+	if modelConfig.ChatTemplate != "" {
+		args = append(args, "--chat-template", modelConfig.ChatTemplate)
+	}
+
+	// Add tokenizer mode if specified
+	if modelConfig.TokenizerMode != "" {
+		args = append(args, "--tokenizer-mode", modelConfig.TokenizerMode)
+	}
+
+	// Add quantization if specified
+	if modelConfig.Quantization != "" {
+		args = append(args, "--quantization", modelConfig.Quantization)
+	}
+
 	args = append(args,
 		"--host", "0.0.0.0",
 		"--port", "8000",
@@ -342,7 +355,7 @@ func (m *K8sManager) buildPodSpec(modelConfig *ModelConfig) corev1.PodSpec {
 			{
 				Name:            "vllm",
 				Image:           "vllm/vllm-openai:latest",
-				ImagePullPolicy: corev1.PullIfNotPresent,
+				ImagePullPolicy: corev1.PullAlways,
 				Command:         []string{"python3", "-m", "vllm.entrypoints.openai.api_server"},
 				Args:            m.buildVLLMArgs(modelConfig),
 				Env:             m.buildVLLMEnvVars(),
@@ -459,6 +472,14 @@ func (m *K8sManager) buildVLLMEnvVars() []corev1.EnvVar {
 		{
 			Name:  "OMP_NUM_THREADS",
 			Value: "16",
+		},
+		{
+			Name:  "PYTORCH_CUDA_ALLOC_CONF",
+			Value: "expandable_segments:True",
+		},
+		{
+			Name:  "CUDA_VISIBLE_DEVICES",
+			Value: "1,0",
 		},
 		// HF Token from secret (optional - will fail silently if secret doesn't exist)
 		{

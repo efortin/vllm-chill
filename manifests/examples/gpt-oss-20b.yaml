@@ -1,0 +1,27 @@
+apiVersion: vllm.sir-alfred.io/v1alpha1
+kind: VLLMModel
+metadata:
+  name: gpt-oss-20b
+spec:
+  # Model Identification
+  modelName: "openai/gpt-oss-20b"
+  servedModelName: "gpt-oss-20b"
+  
+  # Parsing Configuration
+  toolCallParser: "hermes"
+  reasoningParser: ""
+  chatTemplate: "{% for message in messages %}{{'<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>' + '\n'}}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant\n' }}{% endif %}"
+
+  # vLLM Runtime Parameters (model-specific)
+  # Note: GPU count and CPU offload are configured at vllm-chill deployment level (GPU_COUNT and CPU_OFFLOAD_GB env vars)
+  # GPT-OSS 20B uses MoE architecture with MXFP4 quantization (pre-quantized)
+  # 21B total params, 3.6B active per token, 128k context window
+  maxModelLen: 128000
+  gpuMemoryUtilization: 0.90
+  enableChunkedPrefill: true
+  maxNumBatchedTokens: 8192
+  maxNumSeqs: 16
+  dtype: "auto"
+  disableCustomAllReduce: true
+  enablePrefixCaching: true
+  enableAutoToolChoice: true
