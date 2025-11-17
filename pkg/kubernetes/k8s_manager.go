@@ -43,13 +43,6 @@ func (m *K8sManager) EnsureVLLMResources(ctx context.Context, initialModel *Mode
 	return nil
 }
 
-// ensureConfigMap is deprecated - model config is now read directly from CRD
-// Kept for backward compatibility but not used
-func (m *K8sManager) ensureConfigMap(ctx context.Context, modelConfig *ModelConfig) error {
-	log.Printf("ConfigMap management is deprecated - model config is read directly from CRD")
-	return nil
-}
-
 // ensureService creates the vLLM service if it doesn't exist
 // Note: Service name must NOT be "vllm" to avoid K8s env var conflicts (VLLM_SERVICE_HOST, etc.)
 func (m *K8sManager) ensureService(ctx context.Context) error {

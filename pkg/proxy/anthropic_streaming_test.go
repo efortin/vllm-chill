@@ -316,12 +316,11 @@ func parseSSEEvents(t *testing.T, body io.Reader) []SSEEvent {
 
 func createTestAutoscaler(t *testing.T, vllmURL string) *AutoScaler {
 	config := &Config{
-		Port:          "8080",
-		Namespace:     "test",
-		Deployment:    "test",
-		ConfigMapName: "test",
-		IdleTimeout:   "5m",
-		ModelID:       "qwen3-coder-30b-fp8",
+		Port:        "8080",
+		Namespace:   "test",
+		Deployment:  "test",
+		IdleTimeout: "5m",
+		ModelID:     "qwen3-coder-30b-fp8",
 	}
 
 	as, err := NewAutoScaler(config)

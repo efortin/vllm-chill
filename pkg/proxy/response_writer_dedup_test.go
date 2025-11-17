@@ -14,7 +14,7 @@ import (
 // Test exact duplicate chunk detection
 func TestDeduplicateExactDuplicateChunks(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	rw := newResponseWriter(recorder, true, nil, false)
+	rw := newResponseWriter(recorder, true, nil)
 	rw.toolCallsDetected = true
 
 	// Create identical chunks (simulating vLLM tensor parallelism)
@@ -61,7 +61,7 @@ func TestDeduplicateExactDuplicateChunks(t *testing.T) {
 // Test tool call argument deduplication
 func TestDeduplicateToolCallArguments(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	rw := newResponseWriter(recorder, true, nil, false)
+	rw := newResponseWriter(recorder, true, nil)
 	rw.toolCallsDetected = true
 
 	// First chunk with arguments
@@ -144,7 +144,7 @@ func TestDeduplicateToolCallArguments(t *testing.T) {
 // Test tool call ID deduplication (content_block_start)
 func TestDeduplicateToolCallIDs(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	rw := newResponseWriter(recorder, true, nil, false)
+	rw := newResponseWriter(recorder, true, nil)
 	rw.toolCallsDetected = true
 
 	// First tool call start event
@@ -234,7 +234,7 @@ func TestDeduplicateToolCallIDs(t *testing.T) {
 // Test DONE marker passthrough
 func TestDeduplicateDoneMarker(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	rw := newResponseWriter(recorder, true, nil, false)
+	rw := newResponseWriter(recorder, true, nil)
 	rw.toolCallsDetected = true
 
 	chunk := map[string]interface{}{
@@ -261,7 +261,7 @@ func TestDeduplicateDoneMarker(t *testing.T) {
 // Test no deduplication when tool calls not detected
 func TestNoDeduplicationWithoutToolCalls(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	rw := newResponseWriter(recorder, true, nil, false)
+	rw := newResponseWriter(recorder, true, nil)
 	// Note: toolCallsDetected = false (default)
 
 	chunk := map[string]interface{}{
@@ -293,7 +293,7 @@ func TestNoDeduplicationWithoutToolCalls(t *testing.T) {
 // Test mixed content and tool calls
 func TestDeduplicateMixedContent(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	rw := newResponseWriter(recorder, true, nil, false)
+	rw := newResponseWriter(recorder, true, nil)
 	rw.toolCallsDetected = true
 
 	// Regular content chunk
@@ -353,7 +353,7 @@ func TestDeduplicateMixedContent(t *testing.T) {
 // Test incremental argument building
 func TestDeduplicateIncrementalArguments(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	rw := newResponseWriter(recorder, true, nil, false)
+	rw := newResponseWriter(recorder, true, nil)
 	rw.toolCallsDetected = true
 
 	// Simulate incremental JSON argument streaming
@@ -404,7 +404,7 @@ func TestDeduplicateIncrementalArguments(t *testing.T) {
 // Test empty lines handling
 func TestDeduplicateEmptyLines(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	rw := newResponseWriter(recorder, true, nil, false)
+	rw := newResponseWriter(recorder, true, nil)
 	rw.toolCallsDetected = true
 
 	chunk := map[string]interface{}{
@@ -433,7 +433,7 @@ func TestDeduplicateEmptyLines(t *testing.T) {
 // Benchmark deduplication performance
 func BenchmarkDeduplication(b *testing.B) {
 	recorder := httptest.NewRecorder()
-	rw := newResponseWriter(recorder, false, nil, false)
+	rw := newResponseWriter(recorder, false, nil)
 	rw.toolCallsDetected = true
 
 	chunk := map[string]interface{}{
@@ -466,7 +466,7 @@ func BenchmarkDeduplication(b *testing.B) {
 // Test multiple tool calls in same request
 func TestDeduplicateMultipleToolCalls(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	rw := newResponseWriter(recorder, true, nil, false)
+	rw := newResponseWriter(recorder, true, nil)
 	rw.toolCallsDetected = true
 
 	// First tool call
@@ -535,7 +535,7 @@ func TestDeduplicateMultipleToolCalls(t *testing.T) {
 // Test bytes filtered metric
 func TestDeduplicationBytesFiltered(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	rw := newResponseWriter(recorder, true, nil, false)
+	rw := newResponseWriter(recorder, true, nil)
 
 	chunk := map[string]interface{}{
 		"choices": []interface{}{

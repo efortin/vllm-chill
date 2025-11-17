@@ -94,11 +94,10 @@ func NewAutoScaler(config *Config) (*AutoScaler, error) {
 	}
 
 	k8sManagerConfig := &kubernetes.Config{
-		Namespace:     config.Namespace,
-		Deployment:    config.Deployment,
-		ConfigMapName: config.ConfigMapName,
-		GPUCount:      config.GPUCount,
-		CPUOffloadGB:  config.CPUOffloadGB,
+		Namespace:    config.Namespace,
+		Deployment:   config.Deployment,
+		GPUCount:     config.GPUCount,
+		CPUOffloadGB: config.CPUOffloadGB,
 	}
 
 	as := &AutoScaler{
@@ -346,7 +345,7 @@ func (as *AutoScaler) proxyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Wrap response writer to capture status and size
-	rw := newResponseWriter(w, as.config.LogOutput, as.metrics, as.config.EnableXMLParsing)
+	rw := newResponseWriter(w, as.config.LogOutput, as.metrics)
 	defer func() {
 		duration := time.Since(start)
 		if as.metrics != nil {

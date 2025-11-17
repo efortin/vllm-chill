@@ -13,17 +13,15 @@ import (
 )
 
 var (
-	namespace        string
-	deployment       string
-	configMapName    string
-	idleTimeout      string
-	port             string
-	logOutput        bool
-	modelID          string
-	gpuCount         int
-	cpuOffloadGB     int
-	publicEndpoint   string
-	enableXMLParsing bool
+	namespace      string
+	deployment     string
+	idleTimeout    string
+	port           string
+	logOutput      bool
+	modelID        string
+	gpuCount       int
+	cpuOffloadGB   int
+	publicEndpoint string
 )
 
 var serveCmd = &cobra.Command{
@@ -49,17 +47,15 @@ The proxy will:
 		log.Println("RBAC permissions verified successfully")
 
 		config := &proxy.Config{
-			Namespace:        namespace,
-			Deployment:       deployment,
-			ConfigMapName:    configMapName,
-			IdleTimeout:      idleTimeout,
-			Port:             port,
-			LogOutput:        logOutput,
-			ModelID:          modelID,
-			GPUCount:         gpuCount,
-			CPUOffloadGB:     cpuOffloadGB,
-			PublicEndpoint:   publicEndpoint,
-			EnableXMLParsing: enableXMLParsing,
+			Namespace:      namespace,
+			Deployment:     deployment,
+			IdleTimeout:    idleTimeout,
+			Port:           port,
+			LogOutput:      logOutput,
+			ModelID:        modelID,
+			GPUCount:       gpuCount,
+			CPUOffloadGB:   cpuOffloadGB,
+			PublicEndpoint: publicEndpoint,
 		}
 
 		scaler, err := proxy.NewAutoScaler(config)
@@ -92,14 +88,12 @@ func init() {
 
 	serveCmd.Flags().StringVar(&namespace, "namespace", getEnvOrDefault("VLLM_NAMESPACE", "vllm"), "Kubernetes namespace")
 	serveCmd.Flags().StringVar(&deployment, "deployment", getEnvOrDefault("VLLM_DEPLOYMENT", "vllm"), "Deployment name")
-	serveCmd.Flags().StringVar(&configMapName, "configmap", getEnvOrDefault("VLLM_CONFIGMAP", ""), "ConfigMap name (deprecated - config from VLLMModel CRD)")
 	serveCmd.Flags().StringVar(&idleTimeout, "idle-timeout", getEnvOrDefault("IDLE_TIMEOUT", "5m"), "Idle timeout before scaling to 0")
 	serveCmd.Flags().StringVar(&port, "port", getEnvOrDefault("PORT", "8080"), "HTTP server port")
 	serveCmd.Flags().StringVar(&modelID, "model-id", getEnvOrDefault("MODEL_ID", ""), "Model ID to load from VLLMModel CRD (required)")
 	serveCmd.Flags().IntVar(&gpuCount, "gpu-count", getEnvOrDefaultInt("GPU_COUNT", 2), "Number of GPUs to allocate (infrastructure-level)")
 	serveCmd.Flags().IntVar(&cpuOffloadGB, "cpu-offload-gb", getEnvOrDefaultInt("CPU_OFFLOAD_GB", 0), "CPU offload in GB (infrastructure-level)")
 	serveCmd.Flags().StringVar(&publicEndpoint, "public-endpoint", getEnvOrDefault("PUBLIC_ENDPOINT", ""), "Public-facing endpoint URL (e.g., https://vllm.sir-alfred.io)")
-	serveCmd.Flags().BoolVar(&enableXMLParsing, "enable-xml-parsing", getEnvOrDefault("ENABLE_XML_PARSING", "false") == "true", "Enable XML tool call parsing (default: false)")
 	// vLLM is now always managed by the autoscaler
 	serveCmd.Flags().BoolVar(&logOutput, "log-output", getEnvOrDefault("LOG_OUTPUT", "false") == "true", "Log response bodies (use with caution, can be verbose)")
 }

@@ -106,22 +106,6 @@ var (
 		[]string{"model_name"},
 	)
 
-	// XML parsing metrics
-	xmlParsingTotal = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "vllm_chill_xml_parsing_total",
-			Help: "Total number of XML tool calls parsed and converted",
-		},
-		[]string{"status"},
-	)
-
-	xmlToolCallsDetected = promauto.NewCounter(
-		prometheus.CounterOpts{
-			Name: "vllm_chill_xml_tool_calls_detected_total",
-			Help: "Total number of tool calls detected in XML format",
-		},
-	)
-
 	// Proxy latency metrics
 	proxyLatency = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -275,20 +259,6 @@ func (mr *MetricsRecorder) SetCurrentModel(modelName string) {
 	}
 	mr.currentModelName = modelName
 	currentModel.WithLabelValues(modelName).Set(1)
-}
-
-// RecordXMLParsing records an XML parsing operation
-func (mr *MetricsRecorder) RecordXMLParsing(success bool, toolCallCount int) {
-	status := "success"
-	if !success {
-		status = "failure"
-	}
-
-	xmlParsingTotal.WithLabelValues(status).Inc()
-
-	if success && toolCallCount > 0 {
-		xmlToolCallsDetected.Add(float64(toolCallCount))
-	}
 }
 
 // RecordProxyLatency records the latency added by the proxy
